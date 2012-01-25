@@ -1,0 +1,2 @@
+This folder is for windows use only ;)
+Copy here CryptoPP headers folder and SWIG directory
