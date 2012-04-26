@@ -1,4 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
+e///////////////////////////////////////////////////////////////////////////////
 //                                                                            //
 //  Copyright (C) 2011-2012, Alan C. Reiner    <alan.reiner@gmail.com>        //
 //  Distributed under the GNU Affero General Public License (AGPL v3)         //
@@ -110,17 +110,17 @@ using namespace std;
 // Use this to avoid "using namespace CryptoPP" (which confuses SWIG)
 // and also so it's easy to switch the AES MODE or PRNG, in one place
 #define UNSIGNED     ((CryptoPP::Integer::Signedness)(0))
-#define BTC_AES      CryptoPP::AES
-#define BTC_CFB_MODE CryptoPP::CFB_Mode
-#define BTC_CBC_MODE CryptoPP::CBC_Mode
-#define BTC_PRNG     CryptoPP::AutoSeededRandomPool
+#define CRYPTO_AES      CryptoPP::AES
+#define CRYPTO_CFB_MODE CryptoPP::CFB_Mode
+#define CRYPTO_CBC_MODE CryptoPP::CBC_Mode
+#define CRYPTO_PRNG     CryptoPP::AutoSeededRandomPool
 
-#define BTC_ECPOINT  CryptoPP::ECP::Point
-#define BTC_ECDSA    CryptoPP::ECDSA< CryptoPP::ECP, CryptoPP::SHA256 >
-#define BTC_PRIVKEY  CryptoPP::ECDSA< CryptoPP::ECP, CryptoPP::SHA256 >::PrivateKey
-#define BTC_PUBKEY   CryptoPP::ECDSA< CryptoPP::ECP, CryptoPP::SHA256 >::PublicKey
-#define BTC_SIGNER   CryptoPP::ECDSA< CryptoPP::ECP, CryptoPP::SHA256 >::Signer 
-#define BTC_VERIFIER CryptoPP::ECDSA< CryptoPP::ECP, CryptoPP::SHA256 >::Verifier
+#define EC_POINT     CryptoPP::ECP::Point
+#define EC_SIGNER    CryptoPP::ECDSA< CryptoPP::ECP, CryptoPP::SHA256 >::Signer 
+#define EC_VERIFIER  CryptoPP::ECDSA< CryptoPP::ECP, CryptoPP::SHA256 >::Verifier
+#define EC_CURVE     CryptoPP::ASN1::secp256k1()
+#define EC_PRIVKEY   CryptoPP::ECDSA< CryptoPP::ECP, CryptoPP::SHA256 >::PrivateKey
+#define EC_PUBKEY    CryptoPP::ECDSA< CryptoPP::ECP, CryptoPP::SHA256 >::PublicKey
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -175,6 +175,7 @@ public:
    SecureBinaryData copySwapEndian(size_t pos1=0, size_t pos2=0) const;
 
    SecureBinaryData & append(SecureBinaryData & sbd2) ;
+   SecureBinaryData & append(BinaryData & bd) ;
    SecureBinaryData & operator=(SecureBinaryData const & sbd2);
    SecureBinaryData   operator+(SecureBinaryData & sbd2) const;
    //uint8_t const & operator[](size_t i) const {return BinaryData::operator[](i);}
@@ -204,6 +205,27 @@ public:
       resize(0);
    }
 
+
+   static SecureBinaryData XOR(SecureBinaryData const & sbd1, 
+                               SecureBinaryData const & sbd2)
+   {
+      assert(sbd1.getSize() == sbd2.getSize())
+      SecureBinaryData out( sbd1.getSize() );
+
+      for(uint8_t i=0; i<sbd1.getSize(); i++)
+         out[i] = sbd1[i] ^ sbd2[i];
+   
+      return out;
+   }
+
+   static SecureBinaryData XOR(SecureBinaryData const & sbd, uint8_t c)
+   {
+      SecureBinaryData out( sbd.getSize() );
+      for(uint8_t i=0; i<sbd.getSize(); i++)
+         out[i] = sbd[i] ^ c;
+   
+      return out;
+   }
 };
 
 
@@ -314,36 +336,36 @@ public:
    CryptoECDSA(void) {}
 
    /////////////////////////////////////////////////////////////////////////////
-   static BTC_PRIVKEY CreateNewPrivateKey(void);
+   static EC_PRIVKEY CreateNewPrivateKey(void);
 
    /////////////////////////////////////////////////////////////////////////////
-   static BTC_PRIVKEY ParsePrivateKey(SecureBinaryData const & privKeyData);
+   static EC_PRIVKEY ParsePrivateKey(SecureBinaryData const & privKeyData);
    
    /////////////////////////////////////////////////////////////////////////////
-   static BTC_PUBKEY ParsePublicKey(SecureBinaryData const & pubKey65B);
+   static EC_PUBKEY ParsePublicKey(SecureBinaryData const & pubKey65B);
 
    /////////////////////////////////////////////////////////////////////////////
-   static BTC_PUBKEY ParsePublicKey(SecureBinaryData const & pubKeyX32B,
+   static EC_PUBKEY ParsePublicKey(SecureBinaryData const & pubKeyX32B,
                                     SecureBinaryData const & pubKeyY32B);
    
    /////////////////////////////////////////////////////////////////////////////
-   static SecureBinaryData SerializePrivateKey(BTC_PRIVKEY const & privKey);
+   static SecureBinaryData SerializePrivateKey(EC_PRIVKEY const & privKey);
    
    /////////////////////////////////////////////////////////////////////////////
-   static SecureBinaryData SerializePublicKey(BTC_PUBKEY const & pubKey);
+   static SecureBinaryData SerializePublicKey(EC_PUBKEY const & pubKey);
 
    /////////////////////////////////////////////////////////////////////////////
-   static BTC_PUBKEY ComputePublicKey(BTC_PRIVKEY const & cppPrivKey);
+   static EC_PUBKEY ComputePublicKey(EC_PRIVKEY const & cppPrivKey);
 
    
    /////////////////////////////////////////////////////////////////////////////
-   static bool CheckPubPrivKeyMatch(BTC_PRIVKEY const & cppPrivKey,
-                                    BTC_PUBKEY  const & cppPubKey);
+   static bool CheckPubPrivKeyMatch(EC_PRIVKEY const & cppPrivKey,
+                                    EC_PUBKEY  const & cppPubKey);
    
    /////////////////////////////////////////////////////////////////////////////
    // For signing and verification, pass in original, UN-HASHED binary string
    static SecureBinaryData SignData(SecureBinaryData const & binToSign, 
-                                    BTC_PRIVKEY const & cppPrivKey);
+                                    EC_PRIVKEY const & cppPrivKey);
    
    
    
@@ -351,7 +373,7 @@ public:
    // For signing and verification, pass in original, UN-HASHED binary string
    static bool VerifyData(SecureBinaryData const & binMessage, 
                           SecureBinaryData const & binSignature,
-                          BTC_PUBKEY const & cppPubKey);
+                          EC_PUBKEY const & cppPubKey);
 
    /////////////////////////////////////////////////////////////////////////////
    // For doing direct raw ECPoint operations... need the ECP object
@@ -361,7 +383,7 @@ public:
    /////////////////////////////////////////////////////////////////////////////
    // We need to make sure that we have methods that take only secure strings
    // and return secure strings (I don't feel like figuring out how to get 
-   // SWIG to take BTC_PUBKEY and BTC_PRIVKEY
+   // SWIG to take EC_PUBKEY and EC_PRIVKEY
 
    /////////////////////////////////////////////////////////////////////////////
    SecureBinaryData GenerateNewPrivateKey(void);
@@ -430,6 +452,102 @@ public:
    // For Point-compression
    SecureBinaryData CompressPoint(SecureBinaryData const & pubKey65);
    SecureBinaryData UncompressPoint(SecureBinaryData const & pubKey33);
+
+};
+
+
+
+typedef enum{
+   HDW_CHAIN_INTERNAL=0,
+   HDW_CHAIN_EXTERNAL=1
+}  HDW_CHAIN_TYPE;
+
+
+class ExtendedKey
+{
+public:
+
+   ExtendedKey(void) : privKey_(0), pubKey_(0), chain_(0) {}
+      
+   ExtendedKey(SecureBinaryData const & pr, 
+               SecureBinaryData const & pb, 
+               SecureBinaryData const & ch) : 
+      privKey_(pr),
+      pubKey_(pb),
+      chain_(ch) 
+   {
+      assert(privKey_.getSize()==0 || privKey_.getSize()==32);
+      assert(pubKey_.getSize()==33 || pubKey_.getSize()==65);
+      assert(chain.getSize()==32);
+   }
+
+   ExtendedKey(BinaryData const & pub, BinaryData const & chn) : 
+      privKey_(0),
+      pubKey_(pub),
+      chain_(chn) 
+   {
+      assert(pubKey_.getSize()==33 || pubKey_.getSize()==65);
+      assert(chain.getSize()==32);
+   }
+
+
+   // Should be static, but would prevent SWIG from using it.
+   ExtendedKey CreateFromPrivate( SecureBinaryData const & priv, 
+                                  SecureBinaryData const & chain)
+   {
+      ExtendedKey ek;
+      ek.privKey_ = priv.copy();
+      ek.pubKey_ = CryptoECDSA().ComputePublicKey(privKey_);
+      ek.chain_ = chain.copy();
+      return ek;
+   }
+
+   // Should be static, but would prevent SWIG from using it.
+   ExtendedKey CreateFromPublic( SecureBinaryData const & pub, 
+                                 SecureBinaryData const & chain)
+   {
+      ExtendedKey ek;
+      ek.privKey_ = SecureBinaryData(0);
+      ek.pubKey_ = pub.copy();
+      ek.chain_ = chain.copy();
+      return ek;
+   }
+
+   bool hasPriv(void)   {return ( privKey_.getSize() > 0 );}
+   bool hasPub(void)    {return (  pubKey_.getSize() > 0 );}
+   bool hasChain(void)  {return (   chain_.getSize() > 0 );}
+   bool isInitialized(void)  {return hasPub(); }
+
+   SecureBinaryData const & getPriv(void) {return privKey_;}
+   SecureBinaryData const & getPub(void) {return pubKey_;}
+   SecureBinaryData const & getChain(void) {return chain_;}
+
+
+private:
+   SecureBinaryData privKey_;
+   SecureBinaryData pubKey_;
+   SecureBinaryData chain_;
+   //bool isLeaf_;  // not sure if we should implement this, yet
+
+};
+
+// Based 
+class HDWalletCrypto
+{
+public:
+   HMAC(void) {}
+
+   SecureBinaryData HMAC_SHA512(SecureBinaryData key, 
+                                SecureBinaryData msg);
+
+   SecureBinaryData ChildKeyDeriv(SecureBinaryData ExtKey, 
+                                  SecureBinaryData ExtChain, 
+                                  uint64_t n);
+
+   SecureBinaryData ECMultiplyPoint(SecureBinaryData const & scalar, 
+                                    SecureBinaryData const & ecPoint,
+                                    bool compressOutput)
+
 };
 
 
