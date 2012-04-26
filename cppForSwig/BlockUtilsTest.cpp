@@ -36,9 +36,9 @@ void TestReadAndOrganizeChainWithWallet(string blkfile);
 void TestScanForWalletTx(string blkfile);
 void TestReorgBlockchain(string blkfile);
 void TestZeroConf(void);
-void TestCrypto(void);
-void TestECDSA(void);
-void TestPointCompression(void);
+void TestCrypto_1_35(void);
+void TestECDSA_1_35(void);
+void TestPointCompression_1_35(void);
 ////////////////////////////////////////////////////////////////////////////////
 
 void printTestHeader(string TestName)
@@ -720,12 +720,12 @@ void TestZeroConf(void)
 }
 
 
-void TestCrypto(void)
+void TestCrypto_1_35(void)
 {
 
-   SecureBinaryData a("aaaaaaaaaa");
-   SecureBinaryData b; b.resize(5);
-   SecureBinaryData c; c.resize(0);
+   SecureBinaryData_1_35 a("aaaaaaaaaa");
+   SecureBinaryData_1_35 b; b.resize(5);
+   SecureBinaryData_1_35 c; c.resize(0);
 
    a.copyFrom(b);
    b.copyFrom(c);
@@ -733,16 +733,16 @@ void TestCrypto(void)
 
    a.resize(0);
    b = a;
-   SecureBinaryData d(a); 
+   SecureBinaryData_1_35 d(a); 
 
    cout << "a=" << a.toHexStr() << endl;
    cout << "b=" << b.toHexStr() << endl;
    cout << "c=" << c.toHexStr() << endl;
    cout << "d=" << d.toHexStr() << endl;
 
-   SecureBinaryData e("eeeeeeeeeeeeeeee");
-   SecureBinaryData f("ffffffff");
-   SecureBinaryData g(0);
+   SecureBinaryData_1_35 e("eeeeeeeeeeeeeeee");
+   SecureBinaryData_1_35 f("ffffffff");
+   SecureBinaryData_1_35 g(0);
 
    e = g.copy();
    e = f.copy();
@@ -759,14 +759,14 @@ void TestCrypto(void)
    // Colin Percival, who is the creator of Scrypt.  
    cout << endl << endl;
    cout << "Executing Key-Derivation-Function (KDF) tests" << endl;
-   KdfRomix kdf;  
+   KdfRomix_1_35 kdf;  
    kdf.computeKdfParams();
    kdf.printKdfParams();
 
-   SecureBinaryData passwd1("This is my first password");
-   SecureBinaryData passwd2("This is my first password.");
-   SecureBinaryData passwd3("This is my first password");
-   SecureBinaryData key;
+   SecureBinaryData_1_35 passwd1("This is my first password");
+   SecureBinaryData_1_35 passwd2("This is my first password.");
+   SecureBinaryData_1_35 passwd3("This is my first password");
+   SecureBinaryData_1_35 key;
 
    cout << "   Password1: '" << passwd1.toBinStr() << "'" << endl;
    key = kdf.DeriveKey(passwd1);
@@ -851,17 +851,17 @@ void TestCrypto(void)
    // Test AES code using NIST test vectors
    /// *** Test 1 *** ///
    cout << endl << endl;
-   SecureBinaryData testIV, plaintext, cipherTarg, cipherComp, testKey, rtPlain;
+   SecureBinaryData_1_35 testIV, plaintext, cipherTarg, cipherComp, testKey, rtPlain;
    testKey.createFromHex   ("0000000000000000000000000000000000000000000000000000000000000000");
    testIV.createFromHex    ("80000000000000000000000000000000");
    plaintext.createFromHex ("00000000000000000000000000000000");
    cipherTarg.createFromHex("ddc6bf790c15760d8d9aeb6f9a75fd4e");
 
    cout << "   Plain        : " << plaintext.toHexStr() << endl;
-   cipherComp = CryptoAES().EncryptCFB(plaintext, testKey, testIV);
+   cipherComp = CryptoAES_1_35().EncryptCFB(plaintext, testKey, testIV);
    cout << "   CipherTarget : " << cipherComp.toHexStr() << endl;
    cout << "   CipherCompute: " << cipherComp.toHexStr() << endl;
-   rtPlain = CryptoAES().DecryptCFB(cipherComp, testKey, testIV);
+   rtPlain = CryptoAES_1_35().DecryptCFB(cipherComp, testKey, testIV);
    cout << "   Plain        : " << rtPlain.toHexStr() << endl;
 
 
@@ -873,10 +873,10 @@ void TestCrypto(void)
    cipherTarg.createFromHex("5c9d844ed46f9885085e5d6a4f94c7d7");
 
    cout << "   Plain        : " << plaintext.toHexStr() << endl;
-   cipherComp = CryptoAES().EncryptCFB(plaintext, testKey, testIV);
+   cipherComp = CryptoAES_1_35().EncryptCFB(plaintext, testKey, testIV);
    cout << "   CipherTarget : " << cipherComp.toHexStr() << endl;
    cout << "   CipherCompute: " << cipherComp.toHexStr() << endl;
-   rtPlain = CryptoAES().DecryptCFB(cipherComp, testKey, testIV);
+   rtPlain = CryptoAES_1_35().DecryptCFB(cipherComp, testKey, testIV);
    cout << "   Plain        : " << rtPlain.toHexStr() << endl;
 
    /// *** Test 3 *** ///
@@ -887,10 +887,10 @@ void TestCrypto(void)
    cipherTarg.createFromHex("225f068c28476605735ad671bb8f39f3");
 
    cout << "   Plain        : " << plaintext.toHexStr() << endl;
-   cipherComp = CryptoAES().EncryptCFB(plaintext, testKey, testIV);
+   cipherComp = CryptoAES_1_35().EncryptCFB(plaintext, testKey, testIV);
    cout << "   CipherTarget : " << cipherComp.toHexStr() << endl;
    cout << "   CipherCompute: " << cipherComp.toHexStr() << endl;
-   rtPlain = CryptoAES().DecryptCFB(cipherComp, testKey, testIV);
+   rtPlain = CryptoAES_1_35().DecryptCFB(cipherComp, testKey, testIV);
    cout << "   Plain        : " << rtPlain.toHexStr() << endl;
 
 
@@ -899,21 +899,21 @@ void TestCrypto(void)
    cout << endl << endl;
    cout << "Starting some kdf-aes-combined tests..." << endl;
    kdf.printKdfParams();
-   testKey = kdf.DeriveKey(SecureBinaryData("This passphrase is tough to guess"));
-   SecureBinaryData secret, cipher;
+   testKey = kdf.DeriveKey(SecureBinaryData_1_35("This passphrase is tough to guess"));
+   SecureBinaryData_1_35 secret, cipher;
    secret.createFromHex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-   SecureBinaryData randIV(0);  // tell the crypto to generate a random IV for me.
+   SecureBinaryData_1_35 randIV(0);  // tell the crypto to generate a random IV for me.
 
    cout << "Encrypting:" << endl;
-   cipher = CryptoAES().EncryptCFB(secret, testKey, randIV);
+   cipher = CryptoAES_1_35().EncryptCFB(secret, testKey, randIV);
    cout << endl << endl;
    cout << "Decrypting:" << endl;
-   secret = CryptoAES().DecryptCFB(cipher, testKey, randIV);
+   secret = CryptoAES_1_35().DecryptCFB(cipher, testKey, randIV);
    cout << endl << endl;
 
    // Now encrypting so I can store the encrypted data in file
    cout << "Encrypting again:" << endl;
-   cipher = CryptoAES().EncryptCFB(secret, testKey, randIV);
+   cipher = CryptoAES_1_35().EncryptCFB(secret, testKey, randIV);
 
    ofstream testfile("safefile.txt", ios::out);
    testfile << "KdfParams " << endl;
@@ -927,7 +927,7 @@ void TestCrypto(void)
    
    ifstream infile("safefile.txt", ios::in);
    uint32_t mem, nIters;
-   SecureBinaryData salt, iv;
+   SecureBinaryData_1_35 salt, iv;
    char deadstr[256];
    char hexstr[256];
 
@@ -935,35 +935,35 @@ void TestCrypto(void)
    infile >> deadstr >> mem;
    infile >> deadstr >> nIters;
    infile >> deadstr >> hexstr;
-   salt.copyFrom( SecureBinaryData::CreateFromHex(string(hexstr, 64)));
+   salt.copyFrom( SecureBinaryData_1_35::CreateFromHex(string(hexstr, 64)));
    infile >> deadstr;
    infile >> deadstr >> hexstr;
-   iv.copyFrom( SecureBinaryData::CreateFromHex(string(hexstr, 64)));
+   iv.copyFrom( SecureBinaryData_1_35::CreateFromHex(string(hexstr, 64)));
    infile >> deadstr >> hexstr;
-   cipher.copyFrom( SecureBinaryData::CreateFromHex(string(hexstr, 64)));
+   cipher.copyFrom( SecureBinaryData_1_35::CreateFromHex(string(hexstr, 64)));
    infile.close();
    cout << endl << endl;
 
    // Will try this twice, once with correct passphrase, once without
-   SecureBinaryData cipherTry1 = cipher;
-   SecureBinaryData cipherTry2 = cipher;
-   SecureBinaryData newKey;
+   SecureBinaryData_1_35 cipherTry1 = cipher;
+   SecureBinaryData_1_35 cipherTry2 = cipher;
+   SecureBinaryData_1_35 newKey;
 
-   KdfRomix newKdf(mem, nIters, salt);
+   KdfRomix_1_35 newKdf(mem, nIters, salt);
    newKdf.printKdfParams();
 
    // First test with the wrong passphrase
    cout << "Attempting to decrypt with wrong passphrase" << endl;
-   SecureBinaryData passphrase = SecureBinaryData("This is the wrong passphrase");
+   SecureBinaryData_1_35 passphrase = SecureBinaryData_1_35("This is the wrong passphrase");
    newKey = newKdf.DeriveKey( passphrase );
-   CryptoAES().DecryptCFB(cipherTry1, newKey, iv);
+   CryptoAES_1_35().DecryptCFB(cipherTry1, newKey, iv);
 
 
    // Now try correct passphrase
    cout << "Attempting to decrypt with CORRECT passphrase" << endl;
-   passphrase = SecureBinaryData("This passphrase is tough to guess");
+   passphrase = SecureBinaryData_1_35("This passphrase is tough to guess");
    newKey = newKdf.DeriveKey( passphrase );
-   CryptoAES().DecryptCFB(cipherTry2, newKey, iv);
+   CryptoAES_1_35().DecryptCFB(cipherTry2, newKey, iv);
 }
 
 
@@ -971,36 +971,36 @@ void TestCrypto(void)
 
 
 
-void TestECDSA(void)
+void TestECDSA_1_35(void)
 {
 
-   SecureBinaryData msgToSign("This message came from me!");
-   SecureBinaryData privData = SecureBinaryData().GenerateRandom(32);
-   BTC_PRIVKEY privKey = CryptoECDSA().ParsePrivateKey(privData);
-   BTC_PUBKEY  pubKey  = CryptoECDSA().ComputePublicKey(privKey);
+   SecureBinaryData_1_35 msgToSign("This message came from me!");
+   SecureBinaryData_1_35 privData = SecureBinaryData_1_35().GenerateRandom(32);
+   BTC_PRIVKEY privKey = CryptoECDSA_1_35().ParsePrivateKey(privData);
+   BTC_PUBKEY  pubKey  = CryptoECDSA_1_35().ComputePublicKey(privKey);
 
    // Test key-match check
    cout << "Do the pub-priv keypair we just created match? ";
-   cout << (CryptoECDSA().CheckPubPrivKeyMatch(privKey, pubKey) ? 1 : 0) << endl;
+   cout << (CryptoECDSA_1_35().CheckPubPrivKeyMatch(privKey, pubKey) ? 1 : 0) << endl;
    cout << endl;
    
-   SecureBinaryData signature = CryptoECDSA().SignData(msgToSign, privKey);
+   SecureBinaryData_1_35 signature = CryptoECDSA_1_35().SignData(msgToSign, privKey);
    cout << "Signature = " << signature.toHexStr() << endl;
    cout << endl;
 
-   bool isValid = CryptoECDSA().VerifyData(msgToSign, signature, pubKey);
+   bool isValid = CryptoECDSA_1_35().VerifyData(msgToSign, signature, pubKey);
    cout << "SigValid? = " << (isValid ? 1 : 0) << endl;
    cout << endl;
 
    // Test signature from blockchain:
-   SecureBinaryData msg = SecureBinaryData::CreateFromHex("0100000001bb664ff716b9dfc831bcc666c1767f362ad467fcfbaf4961de92e45547daab870100000062537a7652a269537a829178a91480677c5392220db736455533477d0bc2fba65502879b69537a829178a91402d7aa2e76d9066fb2b3c41ff8839a5c81bdca19879b69537a829178a91410039ce4fdb5d4ee56148fe3935b9bfbbe4ecc89879b6953aeffffffff0280969800000000001976a9140817482d2e97e4be877efe59f4bae108564549f188ac7015a7000000000062537a7652a269537a829178a91480677c5392220db736455533477d0bc2fba65502879b69537a829178a91402d7aa2e76d9066fb2b3c41ff8839a5c81bdca19879b69537a829178a91410039ce4fdb5d4ee56148fe3935b9bfbbe4ecc89879b6953ae0000000001000000");
-   SecureBinaryData px  = SecureBinaryData::CreateFromHex("8c006ff0d2cfde86455086af5a25b88c2b81858aab67f6a3132c885a2cb9ec38");
-   SecureBinaryData py  = SecureBinaryData::CreateFromHex("e700576fd46c7d72d7d22555eee3a14e2876c643cd70b1b0a77fbf46e62331ac");
-   SecureBinaryData pub65  = SecureBinaryData::CreateFromHex("048c006ff0d2cfde86455086af5a25b88c2b81858aab67f6a3132c885a2cb9ec38e700576fd46c7d72d7d22555eee3a14e2876c643cd70b1b0a77fbf46e62331ac");
-   //SecureBinaryData sig = SecureBinaryData::CreateFromHex("3046022100d73f633f114e0e0b324d87d38d34f22966a03b072803afa99c9408201f6d6dc6022100900e85be52ad2278d24e7edbb7269367f5f2d6f1bd338d017ca4600087766144");
-   SecureBinaryData sig = SecureBinaryData::CreateFromHex("d73f633f114e0e0b324d87d38d34f22966a03b072803afa99c9408201f6d6dc6900e85be52ad2278d24e7edbb7269367f5f2d6f1bd338d017ca4600087766144");
-   pubKey = CryptoECDSA().ParsePublicKey(px,py);
-   isValid = CryptoECDSA().VerifyData(msg, sig, pubKey);
+   SecureBinaryData_1_35 msg = SecureBinaryData_1_35::CreateFromHex("0100000001bb664ff716b9dfc831bcc666c1767f362ad467fcfbaf4961de92e45547daab870100000062537a7652a269537a829178a91480677c5392220db736455533477d0bc2fba65502879b69537a829178a91402d7aa2e76d9066fb2b3c41ff8839a5c81bdca19879b69537a829178a91410039ce4fdb5d4ee56148fe3935b9bfbbe4ecc89879b6953aeffffffff0280969800000000001976a9140817482d2e97e4be877efe59f4bae108564549f188ac7015a7000000000062537a7652a269537a829178a91480677c5392220db736455533477d0bc2fba65502879b69537a829178a91402d7aa2e76d9066fb2b3c41ff8839a5c81bdca19879b69537a829178a91410039ce4fdb5d4ee56148fe3935b9bfbbe4ecc89879b6953ae0000000001000000");
+   SecureBinaryData_1_35 px  = SecureBinaryData_1_35::CreateFromHex("8c006ff0d2cfde86455086af5a25b88c2b81858aab67f6a3132c885a2cb9ec38");
+   SecureBinaryData_1_35 py  = SecureBinaryData_1_35::CreateFromHex("e700576fd46c7d72d7d22555eee3a14e2876c643cd70b1b0a77fbf46e62331ac");
+   SecureBinaryData_1_35 pub65  = SecureBinaryData_1_35::CreateFromHex("048c006ff0d2cfde86455086af5a25b88c2b81858aab67f6a3132c885a2cb9ec38e700576fd46c7d72d7d22555eee3a14e2876c643cd70b1b0a77fbf46e62331ac");
+   //SecureBinaryData_1_35 sig = SecureBinaryData_1_35::CreateFromHex("3046022100d73f633f114e0e0b324d87d38d34f22966a03b072803afa99c9408201f6d6dc6022100900e85be52ad2278d24e7edbb7269367f5f2d6f1bd338d017ca4600087766144");
+   SecureBinaryData_1_35 sig = SecureBinaryData_1_35::CreateFromHex("d73f633f114e0e0b324d87d38d34f22966a03b072803afa99c9408201f6d6dc6900e85be52ad2278d24e7edbb7269367f5f2d6f1bd338d017ca4600087766144");
+   pubKey = CryptoECDSA_1_35().ParsePublicKey(px,py);
+   isValid = CryptoECDSA_1_35().VerifyData(msg, sig, pubKey);
    cout << "SigValid? = " << (isValid ? 1 : 0) << endl;
 
 
@@ -1012,7 +1012,7 @@ void TestECDSA(void)
    for(uint32_t i=0; i<nTest; i++)
    {
       // This timing includes key parsing
-      CryptoECDSA().SignData(msgToSign, privData);
+      CryptoECDSA_1_35().SignData(msgToSign, privData);
    }
    TIMER_STOP("SigningTime");
 
@@ -1022,7 +1022,7 @@ void TestECDSA(void)
    for(uint32_t i=0; i<nTest; i++)
    {
       // This timing includes key parsing
-      CryptoECDSA().VerifyData(msg, sig, pub65);
+      CryptoECDSA_1_35().VerifyData(msg, sig, pub65);
    }
    TIMER_STOP("VerifyTime");
 
@@ -1034,32 +1034,32 @@ void TestECDSA(void)
 
 
    // Test deterministic key generation
-   SecureBinaryData privDataOrig = SecureBinaryData().GenerateRandom(32);
-   BTC_PRIVKEY privOrig = CryptoECDSA().ParsePrivateKey(privDataOrig);
-   BTC_PUBKEY  pubOrig  = CryptoECDSA().ComputePublicKey(privOrig);
+   SecureBinaryData_1_35 privDataOrig = SecureBinaryData_1_35().GenerateRandom(32);
+   BTC_PRIVKEY privOrig = CryptoECDSA_1_35().ParsePrivateKey(privDataOrig);
+   BTC_PUBKEY  pubOrig  = CryptoECDSA_1_35().ComputePublicKey(privOrig);
    cout << "Testing deterministic key generation" << endl;
    cout << "   Verify again that pub/priv objects pair match : ";
-   cout << (CryptoECDSA().CheckPubPrivKeyMatch(privOrig, pubOrig) ? 1 : 0) << endl;
+   cout << (CryptoECDSA_1_35().CheckPubPrivKeyMatch(privOrig, pubOrig) ? 1 : 0) << endl;
 
-   SecureBinaryData binPriv = CryptoECDSA().SerializePrivateKey(privOrig);
-   SecureBinaryData binPub  = CryptoECDSA().SerializePublicKey(pubOrig);
+   SecureBinaryData_1_35 binPriv = CryptoECDSA_1_35().SerializePrivateKey(privOrig);
+   SecureBinaryData_1_35 binPub  = CryptoECDSA_1_35().SerializePublicKey(pubOrig);
    cout << "   Verify again that binary pub/priv pair match  : ";
-   cout << (CryptoECDSA().CheckPubPrivKeyMatch(binPriv, binPub) ? 1 : 0) << endl;
+   cout << (CryptoECDSA_1_35().CheckPubPrivKeyMatch(binPriv, binPub) ? 1 : 0) << endl;
    cout << endl;
 
-   SecureBinaryData chaincode = SecureBinaryData().GenerateRandom(32);
+   SecureBinaryData_1_35 chaincode = SecureBinaryData_1_35().GenerateRandom(32);
    cout << "   Starting privKey:" << binPriv.toHexStr() << endl;
    cout << "   Starting pubKey :" << binPub.toHexStr() << endl;
    cout << "   Chaincode       :" << chaincode.toHexStr() << endl;
    cout << endl;
    
-   SecureBinaryData newBinPriv = CryptoECDSA().ComputeChainedPrivateKey(binPriv, chaincode);
-   SecureBinaryData newBinPubA = CryptoECDSA().ComputePublicKey(newBinPriv);
-   SecureBinaryData newBinPubB = CryptoECDSA().ComputeChainedPublicKey(binPub, chaincode);
+   SecureBinaryData_1_35 newBinPriv = CryptoECDSA_1_35().ComputeChainedPrivateKey(binPriv, chaincode);
+   SecureBinaryData_1_35 newBinPubA = CryptoECDSA_1_35().ComputePublicKey(newBinPriv);
+   SecureBinaryData_1_35 newBinPubB = CryptoECDSA_1_35().ComputeChainedPublicKey(binPub, chaincode);
    cout << "   Verify new binary pub/priv pair match: ";
-   cout << (CryptoECDSA().CheckPubPrivKeyMatch(newBinPriv, newBinPubA) ? 1 : 0) << endl;
+   cout << (CryptoECDSA_1_35().CheckPubPrivKeyMatch(newBinPriv, newBinPubA) ? 1 : 0) << endl;
    cout << "   Verify new binary pub/priv pair match: ";
-   cout << (CryptoECDSA().CheckPubPrivKeyMatch(newBinPriv, newBinPubB) ? 1 : 0) << endl;
+   cout << (CryptoECDSA_1_35().CheckPubPrivKeyMatch(newBinPriv, newBinPubB) ? 1 : 0) << endl;
    cout << "   New privKey:" << newBinPriv.toHexStr() << endl;
    cout << "   New pubKeyA:" << newBinPubA.getSliceCopy(0,30).toHexStr() << "..." << endl;
    cout << "   New pubKeyB:" << newBinPubB.getSliceCopy(0,30).toHexStr() << "..." << endl;
@@ -1071,22 +1071,22 @@ void TestECDSA(void)
    BinaryData b = BinaryData::CreateFromHex("e700576fd46c7d72d7d22555eee3a14e2876c643cd70b1b0a77fbf46e62331ac");
    BinaryData c = BinaryData::CreateFromHex("f700576fd46c7d72d7d22555eee3a14e2876c643cd70b1b0a77fbf46e62331ac");
    BinaryData d = BinaryData::CreateFromHex("8130904787384d72d7d22555eee3a14e2876c643cd70b1b0a77fbf46e62331ac");
-   BinaryData e = CryptoECDSA().ECMultiplyScalars(a,b);
-   BinaryData f = CryptoECDSA().ECMultiplyPoint(a, b, c);
-   BinaryData g = CryptoECDSA().ECAddPoints(a, b, c, d);
+   BinaryData e = CryptoECDSA_1_35().ECMultiplyScalars(a,b);
+   BinaryData f = CryptoECDSA_1_35().ECMultiplyPoint(a, b, c);
+   BinaryData g = CryptoECDSA_1_35().ECAddPoints(a, b, c, d);
 }
 
 
 
 
-void TestPointCompression(void)
+void TestPointCompression_1_35(void)
 {
    vector<BinaryData> testPubKey(3);
    testPubKey[0].createFromHex("044f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa385b6b1b8ead809ca67454d9683fcf2ba03456d6fe2c4abe2b07f0fbdbb2f1c1");
    testPubKey[1].createFromHex("04ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bdedc416f5cefc1db0625cd0c75de8192d2b592d7e3b00bcfb4a0e860d880fd1fc");
    testPubKey[2].createFromHex("042596957532fc37e40486b910802ff45eeaa924548c0e1c080ef804e523ec3ed3ed0a9004acf927666eee18b7f5e8ad72ff100a3bb710a577256fd7ec81eb1cb3");
 
-   CryptoPP::ECP & ecp = CryptoECDSA::Get_secp256k1_ECP();
+   CryptoPP::ECP & ecp = CryptoECDSA_1_35::Get_secp256k1_ECP();
    for(uint32_t i=0; i<3; i++)
    {
       CryptoPP::Integer pubX, pubY;
@@ -1102,8 +1102,8 @@ void TestPointCompression(void)
 
       cout << "Point (" << i << "): " << ptFlat.toHexStr() << endl;
       cout << "Point (" << i << "): " << ptComp.toHexStr() << endl;
-      cout << "Point (" << i << "): " << CryptoECDSA().UncompressPoint(SecureBinaryData(ptComp)).toHexStr() << endl;
-      cout << "Point (" << i << "): " << CryptoECDSA().CompressPoint(SecureBinaryData(testPubKey[i])).toHexStr() << endl;
+      cout << "Point (" << i << "): " << CryptoECDSA_1_35().UncompressPoint(SecureBinaryData_1_35(ptComp)).toHexStr() << endl;
+      cout << "Point (" << i << "): " << CryptoECDSA_1_35().CompressPoint(SecureBinaryData_1_35(testPubKey[i])).toHexStr() << endl;
    }
 
 

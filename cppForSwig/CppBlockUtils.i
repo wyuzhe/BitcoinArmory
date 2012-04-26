@@ -18,6 +18,7 @@
 #include "BlockUtils.h"
 #include "BtcUtils.h"
 #include "EncryptionUtils.h"
+#include "EncryptionUtils_1_35.h"
 %}
 
 %include "std_string.i"
