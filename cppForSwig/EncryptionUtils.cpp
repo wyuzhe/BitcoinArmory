@@ -870,21 +870,27 @@ BinaryData CryptoECDSA::ECMultiplyPoint(BinaryData const & scalar,
 
 
 
+////////////////////////////////////////////////////////////////////////////////
+SecureBinaryData HDWalletCrypto::hash512(SecureBinaryData const & data)
+{
+   static CryptoPP::SHA512 sha512;
+   SecureBinaryData theHash(64) ;
+   sha512.CalculateDigest(theHash.getPtr(), data.getPtr(), data.getSize());
+   return theHash;
+}
+                                            
 
 
 ////////////////////////////////////////////////////////////////////////////////
 SecureBinaryData HDWalletCrypto::HMAC_SHA512(SecureBinaryData key, 
                                              SecureBinaryData msg)
 {
-   static CryptoPP::SHA512 sha512;
-   static uint32_t const BLOCKSIZE = 64;
+   static uint32_t const BLOCKSIZE  = 128;
 
    // Reduce large keys via hash-function
    if(key.getSize() > BLOCKSIZE)
-   {
-      sha512.CalculateDigest(key.getPtr(), key.getPtr(), key.getSize());
-      key.resize(BLOCKSIZE);
-   }
+      key = hash512(key);
+
 
    // Zero-pad smaller keys
    if(key.getSize() < BLOCKSIZE)
@@ -893,25 +899,22 @@ SecureBinaryData HDWalletCrypto::HMAC_SHA512(SecureBinaryData key,
       zeros.fill(0x00);
       key.append(zeros);
    }
-    
 
-   SecureBinaryData o_key_pad = SecureBinaryData().XOR( key, 0x5c );
+
    SecureBinaryData i_key_pad = SecureBinaryData().XOR( key, 0x36 );
+   SecureBinaryData o_key_pad = SecureBinaryData().XOR( key, 0x5c );
+
 
    // Inner hash operation
    i_key_pad.append(msg);
-   sha512.CalculateDigest( i_key_pad.getPtr(), 
-                           i_key_pad.getPtr(), 
-                           i_key_pad.getSize() );  
-   i_key_pad.resize(BLOCKSIZE);
+   i_key_pad = hash512(i_key_pad);
+
 
    // Outer hash operation
    o_key_pad.append(i_key_pad);
-   sha512.CalculateDigest( o_key_pad.getPtr(),
-                           o_key_pad.getPtr(), 
-                           o_key_pad.getSize() );  
-   o_key_pad.resize(BLOCKSIZE);
+   o_key_pad = hash512(o_key_pad);
    
+
    return o_key_pad;
 }
 

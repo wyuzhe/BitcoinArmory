@@ -558,6 +558,8 @@ class HDWalletCrypto
 public:
    HDWalletCrypto(void) {}
 
+   SecureBinaryData hash512(SecureBinaryData const & data);
+
    SecureBinaryData HMAC_SHA512(SecureBinaryData key, 
                                 SecureBinaryData msg);
 

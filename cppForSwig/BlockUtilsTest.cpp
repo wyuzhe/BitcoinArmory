@@ -39,6 +39,7 @@ void TestZeroConf(void);
 void TestCrypto_1_35(void);
 void TestECDSA_1_35(void);
 void TestPointCompression_1_35(void);
+void TestHMAC(void);
 ////////////////////////////////////////////////////////////////////////////////
 
 void printTestHeader(string TestName)
@@ -68,8 +69,8 @@ int main(void)
    //printTestHeader("Find-Non-Standard-Tx");
    //TestFindNonStdTx(blkfile);
 
-   printTestHeader("Read-and-Organize-Blockchain-With-Wallet");
-   TestReadAndOrganizeChainWithWallet(blkfile);
+   //printTestHeader("Read-and-Organize-Blockchain-With-Wallet");
+   //TestReadAndOrganizeChainWithWallet(blkfile);
 
    //printTestHeader("Blockchain-Reorg-Unit-Test");
    //TestReorgBlockchain(blkfile);
@@ -77,14 +78,18 @@ int main(void)
    //printTestHeader("Testing Zero-conf handling");
    //TestZeroConf();
 
-   //printTestHeader("Crypto-KDF-and-AES-methods");
-   //TestCrypto();
+   //printTestHeader("Crypto-KDF-and-AES-methods (1.35)");
+   //TestCrypto_1_35();
 
-   //printTestHeader("Crypto-ECDSA-sign-verify");
-   //TestECDSA();
+   //printTestHeader("Crypto-ECDSA-sign-verify (1.35)");
+   //TestECDSA_1_35();
 
-   //printTestHeader("ECDSA Point Compression");
-   //TestPointCompression();
+   //printTestHeader("ECDSA Point Compression (1.35)");
+   //TestPointCompression_1_35();
+
+   printTestHeader("HMAC-SHA512 Test Vectors");
+   TestHMAC();
+
 
    /////////////////////////////////////////////////////////////////////////////
    // ***** Print out all timings to stdout and a csv file *****
@@ -1106,6 +1111,155 @@ void TestPointCompression_1_35(void)
       cout << "Point (" << i << "): " << CryptoECDSA_1_35().CompressPoint(SecureBinaryData_1_35(testPubKey[i])).toHexStr() << endl;
    }
 
+}
 
+
+
+
+void TestHMAC(void)
+{
+
+   BinaryData testVectors[] = {
+
+      BinaryData::CreateFromHex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+                                "0b0b0b0b"),
+      BinaryData::CreateFromHex("4869205468657265"),
+      BinaryData::CreateFromHex("87aa7cdea5ef619d4ff0b4241a1d6cb0"
+                                "2379f4e2ce4ec2787ad0b30545e17cde"
+                                "daa833b7d6b8a702038b274eaea3f4e4"
+                                "be9d914eeb61f1702e696c203a126854"),
+
+
+      BinaryData::CreateFromHex("4a656665"),
+      BinaryData::CreateFromHex("7768617420646f2079612077616e7420"
+                                "666f72206e6f7468696e673f"),
+      BinaryData::CreateFromHex("164b7a7bfcf819e2e395fbe73b56e0a3"
+                                "87bd64222e831fd610270cd7ea250554"
+                                "9758bf75c05a994a6d034f65f8f0e6fd"
+                                "caeab1a34d4a6b4b636e070a38bce737"),
+
+
+      BinaryData::CreateFromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaa"),
+      BinaryData::CreateFromHex("dddddddddddddddddddddddddddddddd"
+                                "dddddddddddddddddddddddddddddddd"
+                                "dddddddddddddddddddddddddddddddd"
+                                "dddd"),
+      BinaryData::CreateFromHex("fa73b0089d56a284efb0f0756c890be9"
+                                "b1b5dbdd8ee81a3655f83e33b2279d39"
+                                "bf3e848279a722c806b485a47e67c807"
+                                "b946a337bee8942674278859e13292fb"),
+
+
+      BinaryData::CreateFromHex("0102030405060708090a0b0c0d0e0f10"
+                                "111213141516171819"),
+      BinaryData::CreateFromHex("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+                                "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+                                "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+                                "cdcd"),
+      BinaryData::CreateFromHex("b0ba465637458c6990e5a8c5f61d4af7"
+                                "e576d97ff94b872de76f8050361ee3db"
+                                "a91ca5c11aa25eb4d679275cc5788063"
+                                "a5f19741120c4f2de2adebeb10a298dd"),
+
+
+      BinaryData::CreateFromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaa"),
+      BinaryData::CreateFromHex("54657374205573696e67204c61726765"
+                                "72205468616e20426c6f636b2d53697a"
+                                "65204b6579202d2048617368204b6579"
+                                "204669727374"),
+      BinaryData::CreateFromHex("80b24263c7c1a3ebb71493c1dd7be8b4"
+                                "9b46d1f41b4aeec1121b013783f8f352"
+                                "6b56d037e05f2598bd0fd2215d6a1e52"
+                                "95e64f73f63f0aec8b915a985d786598"),
+
+
+      BinaryData::CreateFromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaa"),
+      BinaryData::CreateFromHex("54686973206973206120746573742075"
+                                "73696e672061206c6172676572207468"
+                                "616e20626c6f636b2d73697a65206b65"
+                                "7920616e642061206c61726765722074"
+                                "68616e20626c6f636b2d73697a652064"
+                                "6174612e20546865206b6579206e6565"
+                                "647320746f2062652068617368656420"
+                                "6265666f7265206265696e6720757365"
+                                "642062792074686520484d414320616c"
+                                "676f726974686d2e"),
+      BinaryData::CreateFromHex("e37b6a775dc87dbaa4dfa9f96e5e3ffd"
+                                "debd71f8867289865df5a32d20cdc944"
+                                "b6022cac3c4982b10d5eeb55c3e4de15"
+                                "134676fb6de0446065c97440fa8c6a58")
+   };
+ 
+
+   /*
+   cout << "HMAC-SHA512 Test Vectors" << endl;
+   for(uint32_t i=0; i<6; i++)
+   {
+      SecureBinaryData key( testVectors[3*i+0] );
+      SecureBinaryData msg( testVectors[3*i+1] );
+      SecureBinaryData MAC( testVectors[3*i+2] );
+
+      cout << "\tKey: " << key.toHexStr() << endl;
+      cout << "\tMsg: " << msg.toHexStr() << endl;
+      cout << "\tMAC: " << MAC.toHexStr() << endl;
+   }
+   */
+
+   cout << "Execute HMAC-SHA512 Unit Tests" << endl;
+   for(uint32_t i=0; i<6; i++)
+   {
+      SecureBinaryData key( testVectors[3*i+0] );
+      SecureBinaryData msg( testVectors[3*i+1] );
+      SecureBinaryData MAC( testVectors[3*i+2] );
+      SecureBinaryData calc;
+
+      calc = HDWalletCrypto().HMAC_SHA512( key, msg );
+
+      
+      if(calc==MAC)
+         cout << "\t___PASSED___" << endl;
+      else
+      {
+         cout << "Key:  " << key.toHexStr() << endl;
+         cout << "Msg:  " << msg.toHexStr() << endl;
+         cout << "MAC:  " << MAC.toHexStr() << endl;
+         cout << "Calc: " << calc.toHexStr() << endl;
+         
+         cout << "\t***FAILED***" << endl;
+      }
+      
+   }
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
