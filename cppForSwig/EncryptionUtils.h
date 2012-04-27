@@ -255,14 +255,6 @@ public:
 };
 
 
-////////////////////////////////////////////////////////////////////////////////
-typedef enum{
-   HDW_CHAIN_INTERNAL=0,
-   HDW_CHAIN_EXTERNAL=1
-}  HDW_CHAIN_TYPE;
-
-
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // A memory-bound key-derivation function -- uses a variation of Colin 
@@ -486,51 +478,31 @@ class ExtendedKey
 {
 public:
 
-   ExtendedKey(void) : privKey_(0), pubKey_(0), chain_(0) {}
+   ExtendedKey(void) : privKey_(0), pubKey_(0), chain_(0), index_(0), depth_(0) {}
       
    ExtendedKey(SecureBinaryData const & pr, 
                SecureBinaryData const & pb, 
-               SecureBinaryData const & ch) : 
-      privKey_(pr),
-      pubKey_(pb),
-      chain_(ch) 
-   {
-      assert(privKey_.getSize()==0 || privKey_.getSize()==32);
-      assert(pubKey_.getSize()==33 || pubKey_.getSize()==65);
-      assert(chain_.getSize()==32);
-   }
+               SecureBinaryData const & ch,
+               uint32_t depth=UINT32_MAX,
+               uint64_t index=UINT64_MAX);
 
-   ExtendedKey(BinaryData const & pub, BinaryData const & chn) : 
-      privKey_(0),
-      pubKey_(pub),
-      chain_(chn) 
-   {
-      assert(pubKey_.getSize()==33 || pubKey_.getSize()==65);
-      assert(chain_.getSize()==32);
-   }
+   ExtendedKey(BinaryData const & pub, 
+               BinaryData const & chn,
+               uint32_t depth=UINT32_MAX,
+               uint64_t index=UINT64_MAX);
 
 
    // Should be static, but would prevent SWIG from using it.
    ExtendedKey CreateFromPrivate( SecureBinaryData const & priv, 
-                                  SecureBinaryData const & chain)
-   {
-      ExtendedKey ek;
-      ek.privKey_ = priv.copy();
-      ek.pubKey_ = CryptoECDSA().ComputePublicKey(privKey_, false);
-      ek.chain_ = chain.copy();
-      return ek;
-   }
+                                  SecureBinaryData const & chain,
+                                  uint32_t depth=UINT32_MAX,
+                                  uint64_t index=UINT64_MAX);
 
    // Should be static, but would prevent SWIG from using it.
    ExtendedKey CreateFromPublic( SecureBinaryData const & pub, 
-                                 SecureBinaryData const & chain)
-   {
-      ExtendedKey ek;
-      ek.privKey_ = SecureBinaryData(0);
-      ek.pubKey_ = pub.copy();
-      ek.chain_ = chain.copy();
-      return ek;
-   }
+                                 SecureBinaryData const & chain,
+                                 uint32_t depth=UINT32_MAX,
+                                 uint64_t index=UINT64_MAX);
 
    bool hasPriv(void)   {return ( privKey_.getSize() > 0 );}
    bool hasPub(void)    {return (  pubKey_.getSize() > 0 );}
@@ -540,19 +512,30 @@ public:
    SecureBinaryData const & getPriv(void) {return privKey_;}
    SecureBinaryData const & getPub(void) {return pubKey_;}
    SecureBinaryData const & getChain(void) {return chain_;}
+   uint32_t                 getDepth(void) {return depth_;}
+   uint64_t                 getIndex(void) {return index_;}
 
 
 private:
    SecureBinaryData privKey_;
    SecureBinaryData pubKey_;
    SecureBinaryData chain_;
-   //bool isLeaf_;  // not sure if we should implement this, yet
+   uint8_t depth_;
+   uint8_t index_;
 
 };
 
 
 
-// 
+////////////////////////////////////////////////////////////////////////////////
+typedef enum{
+   HDW_CHAIN_EXTERNAL=0,
+   HDW_CHAIN_INTERNAL=1,
+}  HDW_CHAIN_TYPE;
+
+
+
+////////////////////////////////////////////////////////////////////////////////
 class HDWalletCrypto
 {
 public:
@@ -564,9 +547,11 @@ public:
                                 SecureBinaryData msg);
 
    ExtendedKey ChildKeyDeriv(ExtendedKey extKey,
-                             SecureBinaryData indexN);
+                             uint64_t n);
 
 
+   BinaryData intToBinary32_LEsys(uint64_t n);
+   BinaryData intToBinary32_BEsys(uint64_t n);
 };
 
 

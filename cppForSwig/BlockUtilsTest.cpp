@@ -1119,7 +1119,7 @@ void TestPointCompression_1_35(void)
 void TestHMAC(void)
 {
 
-   BinaryData testVectors[] = {
+   BinaryData hmacTestVectors[] = {
 
       BinaryData::CreateFromHex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
                                 "0b0b0b0b"),
@@ -1212,9 +1212,9 @@ void TestHMAC(void)
    cout << "HMAC-SHA512 Test Vectors" << endl;
    for(uint32_t i=0; i<6; i++)
    {
-      SecureBinaryData key( testVectors[3*i+0] );
-      SecureBinaryData msg( testVectors[3*i+1] );
-      SecureBinaryData MAC( testVectors[3*i+2] );
+      SecureBinaryData key( hmacTestVectors[3*i+0] );
+      SecureBinaryData msg( hmacTestVectors[3*i+1] );
+      SecureBinaryData MAC( hmacTestVectors[3*i+2] );
 
       cout << "\tKey: " << key.toHexStr() << endl;
       cout << "\tMsg: " << msg.toHexStr() << endl;
@@ -1225,9 +1225,9 @@ void TestHMAC(void)
    cout << "Execute HMAC-SHA512 Unit Tests" << endl;
    for(uint32_t i=0; i<6; i++)
    {
-      SecureBinaryData key( testVectors[3*i+0] );
-      SecureBinaryData msg( testVectors[3*i+1] );
-      SecureBinaryData MAC( testVectors[3*i+2] );
+      SecureBinaryData key( hmacTestVectors[3*i+0] );
+      SecureBinaryData msg( hmacTestVectors[3*i+1] );
+      SecureBinaryData MAC( hmacTestVectors[3*i+2] );
       SecureBinaryData calc;
 
       calc = HDWalletCrypto().HMAC_SHA512( key, msg );
@@ -1244,7 +1244,95 @@ void TestHMAC(void)
          
          cout << "\t***FAILED***" << endl;
       }
-      
+   }
+
+
+   // Test Child Key Derivation (CKD).
+   BinaryData ckdTestVectors[] = {
+      BinaryData::CreateFromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+      BinaryData::CreateFromHex("04"
+                                "6a04ab98d9e4774ad806e302dddeb63b"
+                                "ea16b5cb5f223ee77478e861bb583eb3"
+                                "36b6fbcb60b5b3d4f1551ac45e5ffc49"
+                                "36466e7d98f6c7c0ec736539f74691a6"),
+      BinaryData::CreateFromHex("dddddddddddddddddddddddddddddddd"
+                                "dddddddddddddddddddddddddddddddd")
+   };
+
+
+   for(uint32_t i=0; i<1; i++)
+   {
+      SecureBinaryData priv(  ckdTestVectors[3*i+0] );
+      SecureBinaryData pub(   ckdTestVectors[3*i+1] );
+      SecureBinaryData chain( ckdTestVectors[3*i+2] );
+
+      //////////////////////////////////////////////////////////////////////////
+      // Start with an extended PRIVATE key
+      ExtendedKey ekprv = ExtendedKey().CreateFromPrivate(priv, chain, 0, 0);
+
+      // Create two accounts
+      ExtendedKey ekprv_0 = HDWalletCrypto().ChildKeyDeriv(ekprv, 0);
+      ExtendedKey ekprv_1 = HDWalletCrypto().ChildKeyDeriv(ekprv, 1);
+
+      // Create internal and external chain on Account 0
+      ExtendedKey ekprv_0_IN = HDWalletCrypto().ChildKeyDeriv(ekprv_0, HDW_CHAIN_INTERNAL);
+      ExtendedKey ekprv_0_EX = HDWalletCrypto().ChildKeyDeriv(ekprv_0, HDW_CHAIN_EXTERNAL);
+
+      // Create three addresses on internal chain
+      ExtendedKey ekprv_0_IN_0 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_IN, 0);
+      ExtendedKey ekprv_0_IN_1 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_IN, 1);
+      ExtendedKey ekprv_0_IN_2 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_IN, 2);
+
+      // Create three addresses on external chain
+      ExtendedKey ekprv_0_EX_0 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_EX, 0);
+      ExtendedKey ekprv_0_EX_1 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_EX, 1);
+      ExtendedKey ekprv_0_EX_2 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_EX, 2);
+
+
+      //////////////////////////////////////////////////////////////////////////
+      // Repeat the above with PUBLIC key
+      ExtendedKey ekpub = ExtendedKey().CreateFromPublic( pub,  chain, 0, 0);
+
+      // Create two accounts
+      ExtendedKey ekpub_0 = HDWalletCrypto().ChildKeyDeriv(ekpub, 0);
+      ExtendedKey ekpub_1 = HDWalletCrypto().ChildKeyDeriv(ekpub, 1);
+
+      // Create internal and external chain on Account 0
+      ExtendedKey ekpub_0_IN = HDWalletCrypto().ChildKeyDeriv(ekpub_0, HDW_CHAIN_INTERNAL);
+      ExtendedKey ekpub_0_EX = HDWalletCrypto().ChildKeyDeriv(ekpub_0, HDW_CHAIN_EXTERNAL);
+
+      // Create three addresses on internal chain
+      ExtendedKey ekpub_0_IN_0 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_IN, 0);
+      ExtendedKey ekpub_0_IN_1 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_IN, 1);
+      ExtendedKey ekpub_0_IN_2 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_IN, 2);
+
+      // Create three addresses on external chain
+      ExtendedKey ekpub_0_EX_0 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_EX, 0);
+      ExtendedKey ekpub_0_EX_1 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_EX, 1);
+      ExtendedKey ekpub_0_EX_2 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_EX, 2);
+
+
+      cout << (ekprv.getPub()==
+               ekpub.getPub()        ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_0.getPub()==
+               ekpub_0.getPub()      ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_1.getPub()==
+               ekpub_1.getPub()      ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_0_IN.getPub()==
+               ekpub_0_IN.getPub()   ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_0_IN_0.getPub()==
+               ekpub_0_IN_0.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_0_IN_1.getPub()==
+               ekpub_0_IN_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_0_IN_2.getPub()==
+               ekpub_0_IN_2.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_0_EX_0.getPub()==
+               ekpub_0_EX_0.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_0_EX_1.getPub()==
+               ekpub_0_EX_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_0_EX_2.getPub()==
+               ekpub_0_EX_2.getPub() ? "___PASSED___" : "***FAILED***") << endl;
    }
 
 }

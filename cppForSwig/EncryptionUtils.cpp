@@ -11,6 +11,7 @@
 
 
 #define CRYPTO_DEBUG false
+#define LITTLE_ENDIAN_SYS 1
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -868,6 +869,71 @@ BinaryData CryptoECDSA::ECMultiplyPoint(BinaryData const & scalar,
 }
 
 
+      
+ExtendedKey::ExtendedKey(SecureBinaryData const & pr, 
+                         SecureBinaryData const & pb, 
+                         SecureBinaryData const & ch,
+                         uint32_t depth,
+                         uint64_t index) : 
+   privKey_(pr),
+   pubKey_(pb),
+   chain_(ch),
+   depth_(depth),
+   index_(index)
+{
+   assert(privKey_.getSize()==0 || privKey_.getSize()==32);
+   assert(pubKey_.getSize()==33 || pubKey_.getSize()==65);
+   assert(chain_.getSize()==32);
+}
+
+ExtendedKey::ExtendedKey(BinaryData const & pub, 
+                      BinaryData const & chn,
+                      uint32_t depth,
+                      uint64_t index) : 
+   privKey_(0),
+   pubKey_(pub),
+   chain_(chn),
+   depth_(depth),
+   index_(index)
+{
+   assert(pubKey_.getSize()==33 || pubKey_.getSize()==65);
+   assert(chain_.getSize()==32);
+}
+
+
+// Should be static, but would prevent SWIG from using it.
+ExtendedKey ExtendedKey::CreateFromPrivate( 
+                               SecureBinaryData const & priv, 
+                               SecureBinaryData const & chain,
+                               uint32_t depth,
+                               uint64_t index)
+{
+   cout << "Create from private..." << endl;
+   ExtendedKey ek;
+   ek.privKey_ = priv.copy();
+   ek.pubKey_ = CryptoECDSA().ComputePublicKey(ek.privKey_, false);
+   ek.chain_ = chain.copy();
+   ek.depth_ = depth;
+   ek.index_ = index;
+   return ek;
+}
+
+// Should be static, but would prevent SWIG from using it.
+ExtendedKey ExtendedKey::CreateFromPublic( 
+                              SecureBinaryData const & pub, 
+                              SecureBinaryData const & chain,
+                              uint32_t depth,
+                              uint64_t index)
+{
+   cout << "Create from public..." << endl;
+   ExtendedKey ek;
+   ek.privKey_ = SecureBinaryData(0);
+   ek.pubKey_ = pub.copy();
+   ek.chain_ = chain.copy();
+   ek.depth_ = depth;
+   ek.index_ = index;
+   return ek;
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -879,6 +945,25 @@ SecureBinaryData HDWalletCrypto::hash512(SecureBinaryData const & data)
    return theHash;
 }
                                             
+
+////////////////////////////////////////////////////////////////////////////////
+// For HDW, need 32-byte integer... this method assumes LE is native
+BinaryData HDWalletCrypto::intToBinary32_LEsys(uint64_t n)
+{
+   BinaryData bdn(32);
+   *(uint64_t*)bdn.getPtr() = n;
+   return bdn.copySwapEndian();
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// For HDW, need 32-byte integer... this method assumes LE is native
+BinaryData HDWalletCrypto::intToBinary32_BEsys(uint64_t n)
+{
+   BinaryData bdn(32);
+   *(uint64_t*)(bdn.getPtr()+24) = n;
+   return bdn;
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -928,44 +1013,61 @@ SecureBinaryData HDWalletCrypto::HMAC_SHA512(SecureBinaryData key,
 // the child of a private key.  Pass in a zero-length SBD object if 
 // only computing child of a public key.
 //
-// We pass in the indexN as an already-big-endian-encoded 32-byte string
-// I leave it up to the caller so that this function can be endian-agnostic
+// We assume that the system is Little-Endian.  
 ExtendedKey HDWalletCrypto::ChildKeyDeriv( ExtendedKey extKey,
-                                           SecureBinaryData indexN)
+                                           uint64_t n)
 {
+
+   cout << "ExtPrv: " << extKey.getPriv().toHexStr() << endl;
+   cout << "ExtPub: " << extKey.getPub().toHexStr() << endl;
+   cout << "ExtChn: " << extKey.getChain().toHexStr() << endl;
+
+
+   SecureBinaryData binaryN;
+   if(LITTLE_ENDIAN_SYS)
+      binaryN = intToBinary32_LEsys(n);
+   else
+      binaryN = intToBinary32_BEsys(n);
+
+   cout << "N: " << binaryN.toHexStr() << endl;
+
    // Can't compute a child with no parent!
    assert(extKey.isInitialized());
 
    // Make a copy of the public key, make sure it's uncompressed
    SecureBinaryData uncomprKey = CryptoECDSA().UncompressPoint(extKey.getPub());
 
+   cout << "Uncompr: " << uncomprKey.toHexStr() << endl;
+
    // Append the 32-byte index number to the uncompressed public key
-   uncomprKey.append(indexN);
+   uncomprKey.append(binaryN);
 
    // Apply HMAC to get the child pieces
    SecureBinaryData I = HMAC_SHA512(extKey.getChain(), uncomprKey);
    SecureBinaryData I_left(  I.getPtr(),     32 );
    SecureBinaryData I_right( I.getPtr()+32,  32 );
+   cout << "I:  " << I.toHexStr() << endl;
+   cout << "Il: " << I_left.toHexStr() << endl;
+   cout << "Ir: " << I_right.toHexStr() << endl;
 
    SecureBinaryData newKey;
 
    if(extKey.hasPriv())
    {
       // This computes the private key, and lets ExtendedKey compute pub
-      newKey = CryptoECDSA().ECMultiplyScalars(I_left, extKey.getPriv());
-      return ExtendedKey().CreateFromPrivate(newKey, I_right);
+      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyScalars(I_left, extKey.getPriv()));
+      return ExtendedKey().CreateFromPrivate(newKey, I_right, extKey.getDepth()+1, n);
+      cout << newKey.toHexStr() << endl;
    }
    else
    {
       // Compress the output if the we received compressed input
       bool doCompress = (extKey.getPub().getSize()==33);
-      newKey = CryptoECDSA().ECMultiplyPoint(I_left, extKey.getPub(), doCompress);
-      return ExtendedKey().CreateFromPublic(newKey, I_right);
+      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyPoint(I_left, extKey.getPub(), doCompress));
+      cout << newKey.toHexStr() << endl;
+      return ExtendedKey().CreateFromPublic(newKey, I_right, extKey.getDepth()+1, n);
    }
 }
-
-
-
 
 
 
