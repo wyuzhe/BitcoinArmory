@@ -1276,19 +1276,24 @@ void TestHMAC(void)
       ExtendedKey ekprv_1 = HDWalletCrypto().ChildKeyDeriv(ekprv, 1);
 
       // Create internal and external chain on Account 0
-      ExtendedKey ekprv_0_IN = HDWalletCrypto().ChildKeyDeriv(ekprv_0, HDW_CHAIN_INTERNAL);
       ExtendedKey ekprv_0_EX = HDWalletCrypto().ChildKeyDeriv(ekprv_0, HDW_CHAIN_EXTERNAL);
-
-      // Create three addresses on internal chain
-      ExtendedKey ekprv_0_IN_0 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_IN, 0);
-      ExtendedKey ekprv_0_IN_1 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_IN, 1);
-      ExtendedKey ekprv_0_IN_2 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_IN, 2);
+      ExtendedKey ekprv_0_IN = HDWalletCrypto().ChildKeyDeriv(ekprv_0, HDW_CHAIN_INTERNAL);
 
       // Create three addresses on external chain
       ExtendedKey ekprv_0_EX_0 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_EX, 0);
       ExtendedKey ekprv_0_EX_1 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_EX, 1);
       ExtendedKey ekprv_0_EX_2 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_EX, 2);
 
+      // Create three addresses on internal chain
+      ExtendedKey ekprv_0_IN_0 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_IN, 0);
+      ExtendedKey ekprv_0_IN_1 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_IN, 1);
+      ExtendedKey ekprv_0_IN_2 = HDWalletCrypto().ChildKeyDeriv(ekprv_0_IN, 2);
+
+      // Now add a few more addresses with very large indices
+      ExtendedKey ekprv_1_IN = HDWalletCrypto().ChildKeyDeriv(ekprv_1, HDW_CHAIN_INTERNAL);
+      ExtendedKey ekprv_1_IN_4095 = HDWalletCrypto().ChildKeyDeriv(ekprv_1_IN, 4095);
+      ExtendedKey ekprv_1_IN_4bil = HDWalletCrypto().ChildKeyDeriv(ekprv_1_IN, UINT32_MAX);
+      ExtendedKey ekprv_1_IN_64mx = HDWalletCrypto().ChildKeyDeriv(ekprv_1_IN, UINT64_MAX);
 
       //////////////////////////////////////////////////////////////////////////
       // Repeat the above with PUBLIC key
@@ -1299,19 +1304,24 @@ void TestHMAC(void)
       ExtendedKey ekpub_1 = HDWalletCrypto().ChildKeyDeriv(ekpub, 1);
 
       // Create internal and external chain on Account 0
-      ExtendedKey ekpub_0_IN = HDWalletCrypto().ChildKeyDeriv(ekpub_0, HDW_CHAIN_INTERNAL);
       ExtendedKey ekpub_0_EX = HDWalletCrypto().ChildKeyDeriv(ekpub_0, HDW_CHAIN_EXTERNAL);
-
-      // Create three addresses on internal chain
-      ExtendedKey ekpub_0_IN_0 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_IN, 0);
-      ExtendedKey ekpub_0_IN_1 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_IN, 1);
-      ExtendedKey ekpub_0_IN_2 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_IN, 2);
+      ExtendedKey ekpub_0_IN = HDWalletCrypto().ChildKeyDeriv(ekpub_0, HDW_CHAIN_INTERNAL);
 
       // Create three addresses on external chain
       ExtendedKey ekpub_0_EX_0 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_EX, 0);
       ExtendedKey ekpub_0_EX_1 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_EX, 1);
       ExtendedKey ekpub_0_EX_2 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_EX, 2);
 
+      // Create three addresses on internal chain
+      ExtendedKey ekpub_0_IN_0 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_IN, 0);
+      ExtendedKey ekpub_0_IN_1 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_IN, 1);
+      ExtendedKey ekpub_0_IN_2 = HDWalletCrypto().ChildKeyDeriv(ekpub_0_IN, 2);
+
+      // Now add a few more addresses with very large indices
+      ExtendedKey ekpub_1_IN = HDWalletCrypto().ChildKeyDeriv(ekpub_1, HDW_CHAIN_INTERNAL);
+      ExtendedKey ekpub_1_IN_4095 = HDWalletCrypto().ChildKeyDeriv(ekpub_1_IN, 4095);
+      ExtendedKey ekpub_1_IN_4bil = HDWalletCrypto().ChildKeyDeriv(ekpub_1_IN, UINT32_MAX);
+      ExtendedKey ekpub_1_IN_64mx = HDWalletCrypto().ChildKeyDeriv(ekpub_1_IN, UINT64_MAX);
 
       cout << (ekprv.getPub()==
                ekpub.getPub()        ? "___PASSED___" : "***FAILED***") << endl;
@@ -1333,6 +1343,40 @@ void TestHMAC(void)
                ekpub_0_EX_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
       cout << (ekprv_0_EX_2.getPub()==
                ekpub_0_EX_2.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_1_IN.getPub()==
+               ekprv_1_IN.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_1_IN_4095.getPub()==
+               ekprv_1_IN_4095.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_1_IN_4bil.getPub()==
+               ekprv_1_IN_4bil.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << (ekprv_1_IN_64mx.getPub()==
+               ekprv_1_IN_64mx.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+
+
+
+      //////////////////////////////////////////////////////////////////////////
+      // Start with an extended PRIVATE key
+      cout << "PRIVATE Key Tree: " << endl;
+      ekprv.debugPrint();
+
+      ekprv_0.debugPrint();
+      ekprv_1.debugPrint();
+
+      ekprv_0_EX.debugPrint();
+      ekprv_0_IN.debugPrint();
+
+      ekprv_0_EX_0.debugPrint();
+      ekprv_0_EX_1.debugPrint();
+      ekprv_0_EX_2.debugPrint();
+
+      ekprv_0_IN_0.debugPrint();
+      ekprv_0_IN_1.debugPrint();
+      ekprv_0_IN_2.debugPrint();
+
+      ekprv_1_IN.debugPrint();
+      ekprv_1_IN_4095.debugPrint();
+      ekprv_1_IN_4bil.debugPrint();
+      ekprv_1_IN_64mx.debugPrint();
    }
 
 }

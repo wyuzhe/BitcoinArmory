@@ -478,50 +478,62 @@ class ExtendedKey
 {
 public:
 
-   ExtendedKey(void) : privKey_(0), pubKey_(0), chain_(0), index_(0), depth_(0) {}
+   ExtendedKey(void) : privKey_(0), pubKey_(0), chain_(0), 
+                       index_(0), depth_(0), parent_(NULL) {}
       
    ExtendedKey(SecureBinaryData const & pr, 
                SecureBinaryData const & pb, 
                SecureBinaryData const & ch,
                uint32_t depth=UINT32_MAX,
-               uint64_t index=UINT64_MAX);
+               uint64_t index=UINT64_MAX,
+               ExtendedKey const * parent=NULL);
 
    ExtendedKey(BinaryData const & pub, 
                BinaryData const & chn,
                uint32_t depth=UINT32_MAX,
-               uint64_t index=UINT64_MAX);
+               uint64_t index=UINT64_MAX,
+               ExtendedKey const * parent=NULL);
 
 
    // Should be static, but would prevent SWIG from using it.
    ExtendedKey CreateFromPrivate( SecureBinaryData const & priv, 
                                   SecureBinaryData const & chain,
                                   uint32_t depth=UINT32_MAX,
-                                  uint64_t index=UINT64_MAX);
+                                  uint64_t index=UINT64_MAX,
+                                  ExtendedKey const * parent=NULL);
 
    // Should be static, but would prevent SWIG from using it.
    ExtendedKey CreateFromPublic( SecureBinaryData const & pub, 
                                  SecureBinaryData const & chain,
                                  uint32_t depth=UINT32_MAX,
-                                 uint64_t index=UINT64_MAX);
+                                 uint64_t index=UINT64_MAX,
+                                 ExtendedKey const * parent=NULL);
 
-   bool hasPriv(void)   {return ( privKey_.getSize() > 0 );}
-   bool hasPub(void)    {return (  pubKey_.getSize() > 0 );}
-   bool hasChain(void)  {return (   chain_.getSize() > 0 );}
-   bool isInitialized(void)  {return hasPub(); }
+   bool hasPriv(void) const        {return ( privKey_.getSize() > 0 );}
+   bool hasPub(void) const         {return (  pubKey_.getSize() > 0 );}
+   bool hasChain(void) const       {return (   chain_.getSize() > 0 );}
+   bool isInitialized(void) const  {return hasPub(); }
 
-   SecureBinaryData const & getPriv(void) {return privKey_;}
-   SecureBinaryData const & getPub(void) {return pubKey_;}
-   SecureBinaryData const & getChain(void) {return chain_;}
-   uint32_t                 getDepth(void) {return depth_;}
-   uint64_t                 getIndex(void) {return index_;}
+   SecureBinaryData const & getPriv(void) const   {return privKey_;}
+   SecureBinaryData const & getPub(void) const    {return pubKey_;}
+   SecureBinaryData const & getChain(void) const  {return chain_;}
+   uint32_t                 getDepth(void) const  {return depth_;}
+   uint64_t                 getIndex(void) const  {return index_;}
+   ExtendedKey const &      getParent(void) const {return *parent_;}
 
+   void debugPrint(void) const;
+
+   vector<uint64_t> getTreeCoords(void) const;
+   string getTreeCoordString(string prefix="M") const;
 
 private:
+   ExtendedKey const * parent_;
    SecureBinaryData privKey_;
    SecureBinaryData pubKey_;
    SecureBinaryData chain_;
-   uint8_t depth_;
-   uint8_t index_;
+   uint32_t depth_;
+   uint64_t index_;
+
 
 };
 
@@ -546,7 +558,7 @@ public:
    SecureBinaryData HMAC_SHA512(SecureBinaryData key, 
                                 SecureBinaryData msg);
 
-   ExtendedKey ChildKeyDeriv(ExtendedKey extKey,
+   ExtendedKey ChildKeyDeriv(ExtendedKey const & extKey,
                              uint64_t n);
 
 
