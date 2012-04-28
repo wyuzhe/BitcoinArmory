@@ -485,13 +485,13 @@ public:
                SecureBinaryData const & pb, 
                SecureBinaryData const & ch,
                uint32_t depth=UINT32_MAX,
-               uint64_t index=UINT64_MAX,
+               uint32_t index=UINT64_MAX,
                ExtendedKey const * parent=NULL);
 
    ExtendedKey(BinaryData const & pub, 
                BinaryData const & chn,
                uint32_t depth=UINT32_MAX,
-               uint64_t index=UINT64_MAX,
+               uint32_t index=UINT64_MAX,
                ExtendedKey const * parent=NULL);
 
 
@@ -499,14 +499,14 @@ public:
    ExtendedKey CreateFromPrivate( SecureBinaryData const & priv, 
                                   SecureBinaryData const & chain,
                                   uint32_t depth=UINT32_MAX,
-                                  uint64_t index=UINT64_MAX,
+                                  uint32_t index=UINT64_MAX,
                                   ExtendedKey const * parent=NULL);
 
    // Should be static, but would prevent SWIG from using it.
    ExtendedKey CreateFromPublic( SecureBinaryData const & pub, 
                                  SecureBinaryData const & chain,
                                  uint32_t depth=UINT32_MAX,
-                                 uint64_t index=UINT64_MAX,
+                                 uint32_t index=UINT64_MAX,
                                  ExtendedKey const * parent=NULL);
 
    bool hasPriv(void) const        {return ( privKey_.getSize() > 0 );}
@@ -518,12 +518,12 @@ public:
    SecureBinaryData const & getPub(void) const    {return pubKey_;}
    SecureBinaryData const & getChain(void) const  {return chain_;}
    uint32_t                 getDepth(void) const  {return depth_;}
-   uint64_t                 getIndex(void) const  {return index_;}
+   uint32_t                 getIndex(void) const  {return index_;}
    ExtendedKey const &      getParent(void) const {return *parent_;}
 
    void debugPrint(void) const;
 
-   vector<uint64_t> getTreeCoords(void) const;
+   vector<uint32_t> getTreeCoords(void) const;
    string getTreeCoordString(string prefix="M") const;
 
 private:
@@ -532,7 +532,7 @@ private:
    SecureBinaryData pubKey_;
    SecureBinaryData chain_;
    uint32_t depth_;
-   uint64_t index_;
+   uint32_t index_;
 
 
 };
@@ -559,11 +559,8 @@ public:
                                 SecureBinaryData msg);
 
    ExtendedKey ChildKeyDeriv(ExtendedKey const & extKey,
-                             uint64_t n);
+                             uint32_t n);
 
-
-   BinaryData intToBinary32_LEsys(uint64_t n);
-   BinaryData intToBinary32_BEsys(uint64_t n);
 };
 
 

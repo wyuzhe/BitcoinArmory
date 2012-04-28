@@ -1247,6 +1247,16 @@ void TestHMAC(void)
    }
 
 
+   // Confirm endianness of integer-to-binary
+   cout << endl;
+   cout << "Display two numbers in both LE and BE.  Confirm byte-order:" << endl;
+   cout << "\tLE (5):    " << BtcUtils::uint32ToBinaryLE(5).toHexStr() << endl;
+   cout << "\tLE (4095): " << BtcUtils::uint32ToBinaryLE(4095).toHexStr() << endl;
+   cout << "\tBE (5):    " << BtcUtils::uint32ToBinaryBE(5).toHexStr() << endl;
+   cout << "\tBE (4095): " << BtcUtils::uint32ToBinaryBE(4095).toHexStr() << endl;
+   cout << endl;
+
+
    // Test Child Key Derivation (CKD).
    BinaryData ckdTestVectors[] = {
       BinaryData::CreateFromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -1293,7 +1303,6 @@ void TestHMAC(void)
       ExtendedKey ekprv_1_IN = HDWalletCrypto().ChildKeyDeriv(ekprv_1, HDW_CHAIN_INTERNAL);
       ExtendedKey ekprv_1_IN_4095 = HDWalletCrypto().ChildKeyDeriv(ekprv_1_IN, 4095);
       ExtendedKey ekprv_1_IN_4bil = HDWalletCrypto().ChildKeyDeriv(ekprv_1_IN, UINT32_MAX);
-      ExtendedKey ekprv_1_IN_64mx = HDWalletCrypto().ChildKeyDeriv(ekprv_1_IN, UINT64_MAX);
 
       //////////////////////////////////////////////////////////////////////////
       // Repeat the above with PUBLIC key
@@ -1321,7 +1330,6 @@ void TestHMAC(void)
       ExtendedKey ekpub_1_IN = HDWalletCrypto().ChildKeyDeriv(ekpub_1, HDW_CHAIN_INTERNAL);
       ExtendedKey ekpub_1_IN_4095 = HDWalletCrypto().ChildKeyDeriv(ekpub_1_IN, 4095);
       ExtendedKey ekpub_1_IN_4bil = HDWalletCrypto().ChildKeyDeriv(ekpub_1_IN, UINT32_MAX);
-      ExtendedKey ekpub_1_IN_64mx = HDWalletCrypto().ChildKeyDeriv(ekpub_1_IN, UINT64_MAX);
 
       cout << (ekprv.getPub()==
                ekpub.getPub()        ? "___PASSED___" : "***FAILED***") << endl;
@@ -1344,13 +1352,11 @@ void TestHMAC(void)
       cout << (ekprv_0_EX_2.getPub()==
                ekpub_0_EX_2.getPub() ? "___PASSED___" : "***FAILED***") << endl;
       cout << (ekprv_1_IN.getPub()==
-               ekprv_1_IN.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+               ekprv_1_IN.getPub()   ? "___PASSED___" : "***FAILED***") << endl;
       cout << (ekprv_1_IN_4095.getPub()==
                ekprv_1_IN_4095.getPub() ? "___PASSED___" : "***FAILED***") << endl;
       cout << (ekprv_1_IN_4bil.getPub()==
                ekprv_1_IN_4bil.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_1_IN_64mx.getPub()==
-               ekprv_1_IN_64mx.getPub() ? "___PASSED___" : "***FAILED***") << endl;
 
 
 
@@ -1376,7 +1382,6 @@ void TestHMAC(void)
       ekprv_1_IN.debugPrint();
       ekprv_1_IN_4095.debugPrint();
       ekprv_1_IN_4bil.debugPrint();
-      ekprv_1_IN_64mx.debugPrint();
    }
 
 }

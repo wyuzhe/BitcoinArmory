@@ -878,7 +878,7 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & pr,
                          SecureBinaryData const & pb, 
                          SecureBinaryData const & ch,
                          uint32_t depth,
-                         uint64_t index,
+                         uint32_t index,
                          ExtendedKey const * parent) :
    parent_(parent),
    privKey_(pr),
@@ -895,7 +895,7 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & pr,
 ExtendedKey::ExtendedKey(BinaryData const & pub, 
                       BinaryData const & chn,
                       uint32_t depth,
-                      uint64_t index,
+                      uint32_t index,
                       ExtendedKey const * parent) :
    parent_(parent),
    privKey_(0),
@@ -914,7 +914,7 @@ ExtendedKey ExtendedKey::CreateFromPrivate(
                                SecureBinaryData const & priv, 
                                SecureBinaryData const & chain,
                                uint32_t depth,
-                               uint64_t index,
+                               uint32_t index,
                                ExtendedKey const * parent)
 {
    ExtendedKey ek;
@@ -932,7 +932,7 @@ ExtendedKey ExtendedKey::CreateFromPublic(
                               SecureBinaryData const & pub, 
                               SecureBinaryData const & chain,
                               uint32_t depth,
-                              uint64_t index,
+                              uint32_t index,
                               ExtendedKey const * parent)
 {
    ExtendedKey ek;
@@ -955,10 +955,10 @@ void ExtendedKey::debugPrint(void) const
 
 
 ////////////////////////////////////////////////////////////////////////////////
-vector<uint64_t> ExtendedKey::getTreeCoords(void) const
+vector<uint32_t> ExtendedKey::getTreeCoords(void) const
 {
 
-   vector<uint64_t> coordVect(depth_);
+   vector<uint32_t> coordVect(depth_);
    ExtendedKey const * currPtr = this;
    while(currPtr->getDepth() != 0)
    {
@@ -975,7 +975,7 @@ string ExtendedKey::getTreeCoordString(string prefix) const
 {
    stringstream ss;
    ss << prefix;
-   vector<uint64_t> indexList = getTreeCoords();
+   vector<uint32_t> indexList = getTreeCoords();
    for(uint32_t i=0; i<indexList.size(); i++)
       ss << "/" << indexList[i]; 
 
@@ -992,24 +992,6 @@ SecureBinaryData HDWalletCrypto::hash512(SecureBinaryData const & data)
 }
                                             
 
-////////////////////////////////////////////////////////////////////////////////
-// For HDW, need 32-byte integer... this method assumes LE is native
-BinaryData HDWalletCrypto::intToBinary32_LEsys(uint64_t n)
-{
-   BinaryData bdn(32);
-   *(uint64_t*)bdn.getPtr() = n;
-   return bdn.copySwapEndian();
-}
-
-
-////////////////////////////////////////////////////////////////////////////////
-// For HDW, need 32-byte integer... this method assumes LE is native
-BinaryData HDWalletCrypto::intToBinary32_BEsys(uint64_t n)
-{
-   BinaryData bdn(32);
-   *(uint64_t*)(bdn.getPtr()+24) = n;
-   return bdn;
-}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1061,14 +1043,11 @@ SecureBinaryData HDWalletCrypto::HMAC_SHA512(SecureBinaryData key,
 //
 // We assume that the system is Little-Endian.  
 ExtendedKey HDWalletCrypto::ChildKeyDeriv( ExtendedKey const & extKey,
-                                           uint64_t n)
+                                           uint32_t n)
 {
 
-   SecureBinaryData binaryN;
-   if(LITTLE_ENDIAN_SYS)
-      binaryN = intToBinary32_LEsys(n);
-   else
-      binaryN = intToBinary32_BEsys(n);
+   // Pad the integer to 4-bytes
+   SecureBinaryData binaryN = BtcUtils::uint32ToBinaryBE(n);
 
    // Can't compute a child with no parent!
    assert(extKey.isInitialized());
@@ -1091,14 +1070,12 @@ ExtendedKey HDWalletCrypto::ChildKeyDeriv( ExtendedKey const & extKey,
       // This computes the private key, and lets ExtendedKey compute pub
       newKey = SecureBinaryData(CryptoECDSA().ECMultiplyScalars(I_left, extKey.getPriv()));
       return ExtendedKey().CreateFromPrivate(newKey, I_right, extKey.getDepth()+1, n, &extKey);
-      cout << newKey.toHexStr() << endl;
    }
    else
    {
       // Compress the output if the we received compressed input
       bool doCompress = (extKey.getPub().getSize()==33);
       newKey = SecureBinaryData(CryptoECDSA().ECMultiplyPoint(I_left, extKey.getPub(), doCompress));
-      cout << newKey.toHexStr() << endl;
       return ExtendedKey().CreateFromPublic(newKey, I_right, extKey.getDepth()+1, n, &extKey);
    }
 }

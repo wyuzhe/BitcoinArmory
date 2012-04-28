@@ -233,6 +233,37 @@ public:
    static BinaryData        BadAddress_;
    static BinaryData        EmptyHash_;
 
+
+   /////////////////////////////////////////////////////////////////////////////
+   static bool systemIsBigEndian(void)
+   {
+      int BIG_ENDIAN_TEST = 1;
+      return ((*(char*)&BIG_ENDIAN_TEST) == 0);
+   }
+   
+   /////////////////////////////////////////////////////////////////////////////
+   static BinaryData uint32ToBinaryBE(uint32_t n)
+   {
+      BinaryData out( (uint8_t*)&n, 4);
+
+      if(systemIsBigEndian())
+         return out;
+      else
+         return out.copySwapEndian();
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static BinaryData uint32ToBinaryLE(uint32_t n)
+   {
+      BinaryData out( (uint8_t*)&n, 4);
+
+      if(systemIsBigEndian())
+         return out.copySwapEndian();
+      else
+         return out;
+   }
+
+
    /////////////////////////////////////////////////////////////////////////////
    static uint64_t readVarInt(uint8_t const * strmPtr, uint32_t* lenOutPtr=NULL)
    {
