@@ -272,7 +272,7 @@ SecureBinaryData KdfRomix::DeriveKey_OneIter(SecureBinaryData const & password)
       V64ptr = (uint64_t*)(frontOfLUT + HSZ*newIndex);
 
       // xor X with V, and store the result in X
-      for(int i=0; i<nXorOps; i++)
+      for(uint32_t i=0; i<nXorOps; i++)
          *(Y64ptr+i) = *(X64ptr+i) ^ *(V64ptr+i);
 
       // Hash the xor'd data to get the next index for lookup
@@ -873,114 +873,125 @@ BinaryData CryptoECDSA::ECMultiplyPoint(BinaryData const & scalar,
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
+uint32_t ExtendedKey::getIndex(void) const
+{
+   if(indicesList_.size() == 0)
+      return UINT32_MAX;
+   
+   list<uint32_t>::const_iterator iter = indicesList_.end();
+   iter--;
+   return *iter;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+vector<uint32_t> ExtendedKey::getIndicesVect(void) const
+{
+   list<uint32_t>::const_iterator iter;
+   vector<uint32_t> out(indicesList_.size());
+   uint32_t index = 0;
+   for(iter=indicesList_.begin(); iter!=indicesList_.end(); iter++)
+   {
+      out[index] = *iter;
+      index++;
+   }
+   return out;
+}
       
+////////////////////////////////////////////////////////////////////////////////
 ExtendedKey::ExtendedKey(SecureBinaryData const & pr, 
                          SecureBinaryData const & pb, 
                          SecureBinaryData const & ch,
-                         uint32_t depth,
-                         uint32_t index,
-                         ExtendedKey const * parent) :
-   parent_(parent),
+                         list<uint32_t> parentTreeIdx) :
    privKey_(pr),
    pubKey_(pb),
    chain_(ch),
-   depth_(depth),
-   index_(index)
+   indicesList_(parentTreeIdx)
 {
    assert(privKey_.getSize()==0 || privKey_.getSize()==32);
    assert(pubKey_.getSize()==33 || pubKey_.getSize()==65);
    assert(chain_.getSize()==32);
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
 ExtendedKey::ExtendedKey(BinaryData const & pub, 
-                      BinaryData const & chn,
-                      uint32_t depth,
-                      uint32_t index,
-                      ExtendedKey const * parent) :
-   parent_(parent),
+                         BinaryData const & chn,
+                         list<uint32_t> parentTreeIdx) :
    privKey_(0),
    pubKey_(pub),
    chain_(chn),
-   depth_(depth),
-   index_(index)
+   indicesList_(parentTreeIdx)
 {
    assert(pubKey_.getSize()==33 || pubKey_.getSize()==65);
    assert(chain_.getSize()==32);
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
 // Should be static, but would prevent SWIG from using it.
 ExtendedKey ExtendedKey::CreateFromPrivate( 
                                SecureBinaryData const & priv, 
                                SecureBinaryData const & chain,
-                               uint32_t depth,
-                               uint32_t index,
-                               ExtendedKey const * parent)
+                               list<uint32_t> parentTreeIdx)
 {
    ExtendedKey ek;
    ek.privKey_ = priv.copy();
    ek.pubKey_ = CryptoECDSA().ComputePublicKey(ek.privKey_, false);
    ek.chain_ = chain.copy();
-   ek.depth_ = depth;
-   ek.index_ = index;
-   ek.parent_ = parent;
+   ek.indicesList_ = parentTreeIdx;
    return ek;
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
 // Should be static, but would prevent SWIG from using it.
 ExtendedKey ExtendedKey::CreateFromPublic( 
                               SecureBinaryData const & pub, 
                               SecureBinaryData const & chain,
-                              uint32_t depth,
-                              uint32_t index,
-                              ExtendedKey const * parent)
+                              list<uint32_t> parentTreeIdx)
 {
    ExtendedKey ek;
    ek.privKey_ = SecureBinaryData(0);
    ek.pubKey_ = pub.copy();
    ek.chain_ = chain.copy();
-   ek.depth_ = depth;
-   ek.index_ = index;
+   ek.indicesList_ = parentTreeIdx;
    return ek;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Strictly speaking, this isn't necessary, but I want a method in python/SWIG
+// that guarantees I'm getting a copy, not a reference
+ExtendedKey ExtendedKey::copy(void) const
+{
+   return ExtendedKey(privKey_, pubKey_, chain_, indicesList_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 void ExtendedKey::debugPrint(void) const
 {
-   cout << "Key: " << getTreeCoordString() << endl;
-   cout << "\t   Private Key:   " << privKey_.toHexStr() << endl;
-   cout << "\t   Public Key:  "   << CryptoECDSA().CompressPoint(pubKey_).toHexStr() << endl;
-   cout << "\t   Chain Code:    " << chain_.toHexStr() << endl << endl;
+   cout << "Indices:       " << getIndexListString() << endl;
+   cout << "Private Key:   " << privKey_.toHexStr() << endl;
+   cout << "Public Key:  "   << CryptoECDSA().CompressPoint(pubKey_).toHexStr() << endl;
+   cout << "Chain Code:    " << chain_.toHexStr() << endl << endl;
 }
 
 
-////////////////////////////////////////////////////////////////////////////////
-vector<uint32_t> ExtendedKey::getTreeCoords(void) const
-{
-
-   vector<uint32_t> coordVect(depth_);
-   ExtendedKey const * currPtr = this;
-   while(currPtr->getDepth() != 0)
-   {
-      coordVect[currPtr->getDepth()-1] = currPtr->getIndex();
-      currPtr = &(currPtr->getParent());
-   }
-
-   return coordVect;   
-}
 
 
 ////////////////////////////////////////////////////////////////////////////////
-string ExtendedKey::getTreeCoordString(string prefix) const
+string ExtendedKey::getIndexListString(string prefix) const
 {
    stringstream ss;
    ss << prefix;
-   vector<uint32_t> indexList = getTreeCoords();
+   vector<uint32_t> indexList = getIndicesVect();
    for(uint32_t i=0; i<indexList.size(); i++)
       ss << "/" << indexList[i]; 
-
    return ss.str();
 }
+
+
 
 ////////////////////////////////////////////////////////////////////////////////
 SecureBinaryData HDWalletCrypto::hash512(SecureBinaryData const & data)
@@ -1065,18 +1076,25 @@ ExtendedKey HDWalletCrypto::ChildKeyDeriv( ExtendedKey const & extKey,
 
    SecureBinaryData newKey;
 
+   // The new keys should have an index list one bigger
+   list<uint32_t> newList = extKey.getIndicesList();
+   newList.push_back(n);
+
    if(extKey.hasPriv())
    {
       // This computes the private key, and lets ExtendedKey compute pub
-      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyScalars(I_left, extKey.getPriv()));
-      return ExtendedKey().CreateFromPrivate(newKey, I_right, extKey.getDepth()+1, n, &extKey);
+      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyScalars(I_left, 
+                                                                extKey.getPriv()));
+      return ExtendedKey().CreateFromPrivate(newKey, I_right, newList);
    }
    else
    {
       // Compress the output if the we received compressed input
       bool doCompress = (extKey.getPub().getSize()==33);
-      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyPoint(I_left, extKey.getPub(), doCompress));
-      return ExtendedKey().CreateFromPublic(newKey, I_right, extKey.getDepth()+1, n, &extKey);
+      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyPoint(I_left, 
+                                                              extKey.getPub(), 
+                                                              doCompress));
+      return ExtendedKey().CreateFromPublic(newKey, I_right, newList);
    }
 }
 

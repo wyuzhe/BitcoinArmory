@@ -1214,6 +1214,29 @@ def createBitcoinURI(addr):
    
 
 
+
+################################################################################
+def getExtendedKey(parent, *args):
+   """
+   Sipa's HD-wallet spec allows you to create an arbitrarily-complex 
+   table/chain/tree of "Extended Keys" (which are key+chaincode)
+   based off a single master extended key, M.  We use the the Child
+   Key Derivation (CKD) function to traverse the tree.
+
+   M/1      = CKD(M, 1)
+   M/1/10   = CKD(M/1, 10)
+   M/2/9/4  = CKD(CKD(CKD(M, 2), 9) 4)
+   etc...
+
+   """
+   if len(args)==0:
+      return parent
+
+   currKey = parent.copy()
+   for index in args:
+      Cpp.ExtendedKey()
+
+
 ################################################################################
 class PyBtcAddress(object):
    """
@@ -1224,7 +1247,6 @@ class PyBtcAddress(object):
       -- Encrypted private key addresses, with AES locking and unlocking
       -- Watching-only public-key addresses
       -- Address-only storage, representing someone else's key
-      -- Deterministic address generation from previous addresses
       -- Serialization and unserialization of key data under all conditions
       -- Checksums on all serialized fields to protect against HDD byte errors
 
@@ -1273,14 +1295,13 @@ class PyBtcAddress(object):
       self.binPublicKey65        = SecureBinaryData()  # 0x04 X(BE) Y(BE)
       self.binPrivKey32_Encr     = SecureBinaryData()  # BIG-ENDIAN
       self.binPrivKey32_Plain    = SecureBinaryData()
-      self.binInitVect16         = SecureBinaryData()
       self.isLocked              = False
       self.useEncryption         = False
       self.isInitialized         = False
-      self.keyChanged            = False   # ...since last key encryption
       self.walletByteLoc         = -1
       self.chaincode             = SecureBinaryData()
-      self.chainIndex            = 0
+      self.treeIndices           = []
+      self.parentAddress         = None
 
       # Information to be used by C++ to know where to search for transactions
       # in the blockchain (disabled in favor of a better search method)
@@ -1295,7 +1316,6 @@ class PyBtcAddress(object):
       # generated the next time the address is unlocked
       self.createPrivKeyNextUnlock             = False
       self.createPrivKeyNextUnlock_IVandKey    = [None, None] # (IV,Key)
-      self.createPrivKeyNextUnlock_ChainDepth  = -1
 
    #############################################################################
    def isInitialized(self):

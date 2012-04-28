@@ -41,6 +41,7 @@ namespace std
 {
    %template(vector_int) std::vector<int>;
    %template(vector_float) std::vector<float>;
+   %template(vector_uint32_t) std::vector<uint32_t>;
    %template(vector_BinaryData) std::vector<BinaryData>;
    %template(vector_LedgerEntry) std::vector<LedgerEntry>;
    %template(vector_TxRefPtr) std::vector<TxRef*>;
@@ -49,6 +50,7 @@ namespace std
    %template(vector_BtcWallet) std::vector<BtcWallet*>;
    %template(vector_AddressBookEntry) std::vector<AddressBookEntry>;
    %template(vector_RegisteredTx) std::vector<RegisteredTx>;
+   %template(vector_ExtendedKey) std::vector<ExtendedKey>;
 }
 /******************************************************************************/
 /* Convert Python(str) to C++(BinaryData) */

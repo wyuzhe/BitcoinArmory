@@ -478,36 +478,28 @@ class ExtendedKey
 {
 public:
 
-   ExtendedKey(void) : privKey_(0), pubKey_(0), chain_(0), 
-                       index_(0), depth_(0), parent_(NULL) {}
+   ExtendedKey(void) : privKey_(0), pubKey_(0), chain_(0) {}
+                       
       
    ExtendedKey(SecureBinaryData const & pr, 
                SecureBinaryData const & pb, 
                SecureBinaryData const & ch,
-               uint32_t depth=UINT32_MAX,
-               uint32_t index=UINT64_MAX,
-               ExtendedKey const * parent=NULL);
+               list<uint32_t> parentTreeIdx=list<uint32_t>());
 
    ExtendedKey(BinaryData const & pub, 
                BinaryData const & chn,
-               uint32_t depth=UINT32_MAX,
-               uint32_t index=UINT64_MAX,
-               ExtendedKey const * parent=NULL);
+               list<uint32_t> parentTreeIdx=list<uint32_t>());
 
 
    // Should be static, but would prevent SWIG from using it.
    ExtendedKey CreateFromPrivate( SecureBinaryData const & priv, 
                                   SecureBinaryData const & chain,
-                                  uint32_t depth=UINT32_MAX,
-                                  uint32_t index=UINT64_MAX,
-                                  ExtendedKey const * parent=NULL);
+                                  list<uint32_t> parentTreeIdx=list<uint32_t>());
 
    // Should be static, but would prevent SWIG from using it.
    ExtendedKey CreateFromPublic( SecureBinaryData const & pub, 
                                  SecureBinaryData const & chain,
-                                 uint32_t depth=UINT32_MAX,
-                                 uint32_t index=UINT64_MAX,
-                                 ExtendedKey const * parent=NULL);
+                                 list<uint32_t> parentTreeIdx=list<uint32_t>());
 
    bool hasPriv(void) const        {return ( privKey_.getSize() > 0 );}
    bool hasPub(void) const         {return (  pubKey_.getSize() > 0 );}
@@ -517,22 +509,25 @@ public:
    SecureBinaryData const & getPriv(void) const   {return privKey_;}
    SecureBinaryData const & getPub(void) const    {return pubKey_;}
    SecureBinaryData const & getChain(void) const  {return chain_;}
-   uint32_t                 getDepth(void) const  {return depth_;}
-   uint32_t                 getIndex(void) const  {return index_;}
-   ExtendedKey const &      getParent(void) const {return *parent_;}
+   list<uint32_t>           getIndicesList(void) const { return indicesList_; }
+
+   uint32_t                 getDepth(void) const  {return indicesList_.size();}
+   uint32_t                 getIndex(void) const;
+   vector<uint32_t>         getIndicesVect(void) const;
+   ExtendedKey              copy(void) const;
+
 
    void debugPrint(void) const;
 
-   vector<uint32_t> getTreeCoords(void) const;
-   string getTreeCoordString(string prefix="M") const;
+   string getIndexListString(string prefix="M") const;
 
 private:
-   ExtendedKey const * parent_;
    SecureBinaryData privKey_;
    SecureBinaryData pubKey_;
    SecureBinaryData chain_;
-   uint32_t depth_;
-   uint32_t index_;
+
+   // Because we can't always rely on parent pointers, we will just 
+   list<uint32_t> indicesList_;
 
 
 };

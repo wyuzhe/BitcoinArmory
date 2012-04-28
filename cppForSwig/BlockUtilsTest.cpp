@@ -1250,11 +1250,10 @@ void TestHMAC(void)
    // Confirm endianness of integer-to-binary
    cout << endl;
    cout << "Display two numbers in both LE and BE.  Confirm byte-order:" << endl;
-   cout << "\tLE (5):    " << BtcUtils::uint32ToBinaryLE(5).toHexStr() << endl;
-   cout << "\tLE (4095): " << BtcUtils::uint32ToBinaryLE(4095).toHexStr() << endl;
-   cout << "\tBE (5):    " << BtcUtils::uint32ToBinaryBE(5).toHexStr() << endl;
-   cout << "\tBE (4095): " << BtcUtils::uint32ToBinaryBE(4095).toHexStr() << endl;
-   cout << endl;
+   cout << "   LE (5):    " << BtcUtils::uint32ToBinaryLE(5).toHexStr() << endl;
+   cout << "   LE (4095): " << BtcUtils::uint32ToBinaryLE(4095).toHexStr() << endl;
+   cout << "   BE (5):    " << BtcUtils::uint32ToBinaryBE(5).toHexStr() << endl;
+   cout << "   BE (4095): " << BtcUtils::uint32ToBinaryBE(4095).toHexStr() << endl;
 
 
    // Test Child Key Derivation (CKD).
@@ -1279,7 +1278,7 @@ void TestHMAC(void)
 
       //////////////////////////////////////////////////////////////////////////
       // Start with an extended PRIVATE key
-      ExtendedKey ekprv = ExtendedKey().CreateFromPrivate(priv, chain, 0, 0);
+      ExtendedKey ekprv = ExtendedKey().CreateFromPrivate(priv, chain);
 
       // Create two accounts
       ExtendedKey ekprv_0 = HDWalletCrypto().ChildKeyDeriv(ekprv, 0);
@@ -1306,7 +1305,7 @@ void TestHMAC(void)
 
       //////////////////////////////////////////////////////////////////////////
       // Repeat the above with PUBLIC key
-      ExtendedKey ekpub = ExtendedKey().CreateFromPublic( pub,  chain, 0, 0);
+      ExtendedKey ekpub = ExtendedKey().CreateFromPublic(pub, chain);
 
       // Create two accounts
       ExtendedKey ekpub_0 = HDWalletCrypto().ChildKeyDeriv(ekpub, 0);
@@ -1331,37 +1330,40 @@ void TestHMAC(void)
       ExtendedKey ekpub_1_IN_4095 = HDWalletCrypto().ChildKeyDeriv(ekpub_1_IN, 4095);
       ExtendedKey ekpub_1_IN_4bil = HDWalletCrypto().ChildKeyDeriv(ekpub_1_IN, UINT32_MAX);
 
-      cout << (ekprv.getPub()==
-               ekpub.getPub()        ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_0.getPub()==
-               ekpub_0.getPub()      ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_1.getPub()==
-               ekpub_1.getPub()      ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_0_IN.getPub()==
-               ekpub_0_IN.getPub()   ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_0_IN_0.getPub()==
-               ekpub_0_IN_0.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_0_IN_1.getPub()==
-               ekpub_0_IN_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_0_IN_2.getPub()==
-               ekpub_0_IN_2.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_0_EX_0.getPub()==
-               ekpub_0_EX_0.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_0_EX_1.getPub()==
-               ekpub_0_EX_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_0_EX_2.getPub()==
-               ekpub_0_EX_2.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_1_IN.getPub()==
-               ekprv_1_IN.getPub()   ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_1_IN_4095.getPub()==
-               ekprv_1_IN_4095.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << (ekprv_1_IN_4bil.getPub()==
-               ekprv_1_IN_4bil.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << endl << endl;
+      cout << "Private-Public Tree Equality Tests:" << endl;
+      cout << "   " << (ekprv.getPub()==
+                        ekpub.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_0.getPub()==
+                        ekpub_0.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_1.getPub()==
+                        ekpub_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_0_IN.getPub()==
+                        ekpub_0_IN.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_0_IN_0.getPub()==
+                        ekpub_0_IN_0.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_0_IN_1.getPub()==
+                        ekpub_0_IN_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_0_IN_2.getPub()==
+                        ekpub_0_IN_2.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_0_EX_0.getPub()==
+                        ekpub_0_EX_0.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_0_EX_1.getPub()==
+                        ekpub_0_EX_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_0_EX_2.getPub()==
+                        ekpub_0_EX_2.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_1_IN.getPub()==
+                        ekprv_1_IN.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_1_IN_4095.getPub()==
+                        ekprv_1_IN_4095.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      cout << "   " << (ekprv_1_IN_4bil.getPub()==
+                        ekprv_1_IN_4bil.getPub() ? "___PASSED___" : "***FAILED***") << endl;
 
 
 
       //////////////////////////////////////////////////////////////////////////
       // Start with an extended PRIVATE key
+      cout << endl << endl;
       cout << "PRIVATE Key Tree: " << endl;
       ekprv.debugPrint();
 
