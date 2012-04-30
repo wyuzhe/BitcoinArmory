@@ -164,10 +164,6 @@ if Test_BasicUtils:
    testFunction('readVersionString',  verTuple, verStr)
    testFunction('readVersionInt',     verTuple, verInt)
 
-   miniKey  = 'S4b3N3oGqDqR5jNuxEvDwf'
-   miniPriv = hex_to_binary('0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d')
-   testFunction('decodeMiniPrivateKey', miniPriv, miniKey)
-
    print 'Testing coin2str method'
    def printC2S(c):
       print str(c).rjust(16),
@@ -389,6 +385,39 @@ if Test_SimpleAddress:
    printpassorfail( sp.verifyTransactionValid() )
    print ''
 
+
+   ################################################################################
+   # Convert Data:  Priv/Pub/Hash160 + Compressed/Uncompressed
+   parsePrivateKeyData()
+   convertKeyDataToAddress()
+   CryptoECDSA().CompressPoint()
+   CryptoECDSA().UncompressPoint()
+
+   miniKey  = 'S4b3N3oGqDqR5jNuxEvDwf'
+   miniPriv = hex_to_binary('0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d')
+   testFunction('decodeMiniPrivateKey', miniPriv, miniKey)
+
+   privU = '\xee'*32
+   privC = '\xee'*32 + '\x01'
+   pubU  = CryptoECDSA().ComputePublicKey( SecureBinaryData(privU) )
+   pubC  = CryptoECDSA().CompressPoint( pubU )
+   addrU = pubU.getHash160()
+   addrC = pubU.getHash160()
+   
+   convertKeyDataToAddress(privKey=privU)
+   convertKeyDataToAddress(pubKey=pubU)
+   convertKeyDataToAddress(privKey=privC)
+   convertKeyDataToAddress(pubKey=pubC)
+
+   convertKeyDataToAddress(privKey=privU, forceCompr=True)
+   convertKeyDataToAddress(pubKey =pubU,  forceCompr=True)
+   convertKeyDataToAddress(privKey=privC, forceCompr=True)
+   convertKeyDataToAddress(pubKey =pubC,  forceCompr=True)
+
+   convertKeyDataToAddress(privKey=privU, forceUncompr=True)
+   convertKeyDataToAddress(pubKey =pubU,  forceUncompr=True)
+   convertKeyDataToAddress(privKey=privC, forceUncompr=True)
+   convertKeyDataToAddress(pubKey =pubC,  forceUncompr=True)
 
 
 ################################################################################

@@ -413,7 +413,7 @@ public:
    
    /////////////////////////////////////////////////////////////////////////////
    SecureBinaryData ComputePublicKey(SecureBinaryData const & cppPrivKey,
-                                     bool doCompress);
+                                     bool doCompress=false);
 
    /////////////////////////////////////////////////////////////////////////////
    bool VerifyPublicKeyValid(SecureBinaryData const & pubKey65);
@@ -474,6 +474,9 @@ public:
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// Extended keys should never hold encrypted keys.  We maintain encryption 
+// details outside this class, and don't want to mistakenly believe that an
+// ExtendedKey object has a priv key if it doesn't
 class ExtendedKey
 {
 public:
@@ -484,21 +487,25 @@ public:
    ExtendedKey(SecureBinaryData const & pr, 
                SecureBinaryData const & pb, 
                SecureBinaryData const & ch,
+               SecureBinaryData const & parfp=SecureBinaryData(),
                list<uint32_t> parentTreeIdx=list<uint32_t>());
 
    ExtendedKey(BinaryData const & pub, 
                BinaryData const & chn,
+               BinaryData const & parfp=SecureBinaryData(),
                list<uint32_t> parentTreeIdx=list<uint32_t>());
 
 
    // Should be static, but would prevent SWIG from using it.
    ExtendedKey CreateFromPrivate( SecureBinaryData const & priv, 
                                   SecureBinaryData const & chain,
+                                  SecureBinaryData const & parentFP=SecureBinaryData(),
                                   list<uint32_t> parentTreeIdx=list<uint32_t>());
 
    // Should be static, but would prevent SWIG from using it.
    ExtendedKey CreateFromPublic( SecureBinaryData const & pub, 
                                  SecureBinaryData const & chain,
+                                 SecureBinaryData const & parentFP=SecureBinaryData(),
                                  list<uint32_t> parentTreeIdx=list<uint32_t>());
 
    bool hasPriv(void) const        {return ( privKey_.getSize() > 0 );}
@@ -510,12 +517,16 @@ public:
    SecureBinaryData const & getPub(void) const    {return pubKey_;}
    SecureBinaryData const & getChain(void) const  {return chain_;}
    list<uint32_t>           getIndicesList(void) const { return indicesList_; }
+   SecureBinaryData         getFingerprint(void) const;
+   SecureBinaryData const & getParentFingerprint(void) const { return parentFingerprint_;}
 
    uint32_t                 getDepth(void) const  {return indicesList_.size();}
    uint32_t                 getIndex(void) const;
    vector<uint32_t>         getIndicesVect(void) const;
    ExtendedKey              copy(void) const;
 
+   SecureBinaryData getPubCompressed(void) const;
+   SecureBinaryData getPubUncompressed(void) const;
 
    void debugPrint(void) const;
 
@@ -528,6 +539,7 @@ private:
 
    // Because we can't always rely on parent pointers, we will just 
    list<uint32_t> indicesList_;
+   SecureBinaryData parentFingerprint_;
 
 
 };
@@ -547,8 +559,6 @@ class HDWalletCrypto
 {
 public:
    HDWalletCrypto(void) {}
-
-   SecureBinaryData hash512(SecureBinaryData const & data);
 
    SecureBinaryData HMAC_SHA512(SecureBinaryData key, 
                                 SecureBinaryData msg);

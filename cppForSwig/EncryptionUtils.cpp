@@ -446,8 +446,10 @@ EC_PRIVKEY CryptoECDSA::ParsePrivateKey(SecureBinaryData const & privKeyData)
 {
    EC_PRIVKEY cppPrivKey;
 
+   // Priv key can actually have an extra 0x01 byte, that's why we hard-code
+   // the "32" below instead of using .getSize()
    CryptoPP::Integer privateExp;
-   privateExp.Decode(privKeyData.getPtr(), privKeyData.getSize(), UNSIGNED);
+   privateExp.Decode(privKeyData.getPtr(), 32, UNSIGNED);
    cppPrivKey.Initialize(EC_CURVE, privateExp);
    return cppPrivKey;
 }
@@ -514,7 +516,6 @@ EC_PUBKEY CryptoECDSA::ComputePublicKey(EC_PRIVKEY const & cppPrivKey)
    // Validate the public key -- not sure why this needs a prng...
    static CRYPTO_PRNG prng;
    assert(cppPubKey.Validate(prng, 3));
-   assert(cppPubKey.Validate(prng, 3));
 
    return cppPubKey;
 }
@@ -539,17 +540,17 @@ bool CryptoECDSA::CheckPubPrivKeyMatch(EC_PRIVKEY const & cppPrivKey,
 }
 
 /////////////////////////////////////////////////////////////////////////////
-bool CryptoECDSA::CheckPubPrivKeyMatch(SecureBinaryData const & privKey32,
+bool CryptoECDSA::CheckPubPrivKeyMatch(SecureBinaryData const & privKey32or33,
                                        SecureBinaryData const & pubKey33or65)
 {
    if(CRYPTO_DEBUG)
    {
       cout << "CheckPubPrivKeyMatch:" << endl;
-      cout << "   BinPrv: " << privKey32.toHexStr() << endl;
+      cout << "   BinPrv: " << privKey32or33.toHexStr() << endl;
       cout << "   BinPub: " << pubKey33or65.toHexStr() << endl;
    }
 
-   EC_PRIVKEY privKey = ParsePrivateKey(privKey32);
+   EC_PRIVKEY privKey = ParsePrivateKey(privKey32or33);
    EC_PUBKEY  pubKey  = ParsePublicKey(pubKey33or65);
    return CheckPubPrivKeyMatch(privKey, pubKey);
 }
@@ -872,6 +873,16 @@ BinaryData CryptoECDSA::ECMultiplyPoint(BinaryData const & scalar,
    
 }
 
+////////////////////////////////////////////////////////////////////////////////
+SecureBinaryData ExtendedKey::getFingerprint(void) const
+{
+   SecureBinaryData hmac = HDWalletCrypto().HMAC_SHA512(
+                        getChain(), CryptoECDSA().UncompressPoint(getPub()));
+
+   
+   return SecureBinaryData(hmac.getPtr(), 4);
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 uint32_t ExtendedKey::getIndex(void) const
@@ -902,10 +913,12 @@ vector<uint32_t> ExtendedKey::getIndicesVect(void) const
 ExtendedKey::ExtendedKey(SecureBinaryData const & pr, 
                          SecureBinaryData const & pb, 
                          SecureBinaryData const & ch,
+                         SecureBinaryData const & parfp,
                          list<uint32_t> parentTreeIdx) :
    privKey_(pr),
    pubKey_(pb),
    chain_(ch),
+   parentFingerprint_(parfp),
    indicesList_(parentTreeIdx)
 {
    assert(privKey_.getSize()==0 || privKey_.getSize()==32);
@@ -917,10 +930,12 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & pr,
 ////////////////////////////////////////////////////////////////////////////////
 ExtendedKey::ExtendedKey(BinaryData const & pub, 
                          BinaryData const & chn,
+                         BinaryData const & parfp,
                          list<uint32_t> parentTreeIdx) :
    privKey_(0),
    pubKey_(pub),
    chain_(chn),
+   parentFingerprint_(parfp),
    indicesList_(parentTreeIdx)
 {
    assert(pubKey_.getSize()==33 || pubKey_.getSize()==65);
@@ -933,12 +948,14 @@ ExtendedKey::ExtendedKey(BinaryData const & pub,
 ExtendedKey ExtendedKey::CreateFromPrivate( 
                                SecureBinaryData const & priv, 
                                SecureBinaryData const & chain,
+                               SecureBinaryData const & parentFP,
                                list<uint32_t> parentTreeIdx)
 {
    ExtendedKey ek;
    ek.privKey_ = priv.copy();
    ek.pubKey_ = CryptoECDSA().ComputePublicKey(ek.privKey_, false);
    ek.chain_ = chain.copy();
+   ek.parentFingerprint_ = parentFP.copy();
    ek.indicesList_ = parentTreeIdx;
    return ek;
 }
@@ -949,12 +966,14 @@ ExtendedKey ExtendedKey::CreateFromPrivate(
 ExtendedKey ExtendedKey::CreateFromPublic( 
                               SecureBinaryData const & pub, 
                               SecureBinaryData const & chain,
+                              SecureBinaryData const & parentFP,
                               list<uint32_t> parentTreeIdx)
 {
    ExtendedKey ek;
    ek.privKey_ = SecureBinaryData(0);
    ek.pubKey_ = pub.copy();
    ek.chain_ = chain.copy();
+   ek.parentFingerprint_ = parentFP.copy();
    ek.indicesList_ = parentTreeIdx;
    return ek;
 }
@@ -965,16 +984,20 @@ ExtendedKey ExtendedKey::CreateFromPublic(
 // that guarantees I'm getting a copy, not a reference
 ExtendedKey ExtendedKey::copy(void) const
 {
-   return ExtendedKey(privKey_, pubKey_, chain_, indicesList_);
+   return ExtendedKey(privKey_, pubKey_, chain_, parentFingerprint_, indicesList_);
 }
+
+
 
 ////////////////////////////////////////////////////////////////////////////////
 void ExtendedKey::debugPrint(void) const
 {
-   cout << "Indices:       " << getIndexListString() << endl;
-   cout << "Private Key:   " << privKey_.toHexStr() << endl;
-   cout << "Public Key:  "   << CryptoECDSA().CompressPoint(pubKey_).toHexStr() << endl;
-   cout << "Chain Code:    " << chain_.toHexStr() << endl << endl;
+   cout << "Indices:        " << getIndexListString() << endl;
+   cout << "Fingerprint:    Self: " << getFingerprint().toHexStr()
+        << " Parent: " << getParentFingerprint().toHexStr() << endl;
+   cout << "Private Key:    " << privKey_.toHexStr() << endl;
+   cout << "Public Key:   "   << CryptoECDSA().CompressPoint(pubKey_).toHexStr() << endl;
+   cout << "Chain Code:     " << chain_.toHexStr() << endl << endl;
 }
 
 
@@ -992,17 +1015,17 @@ string ExtendedKey::getIndexListString(string prefix) const
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
+SecureBinaryData ExtendedKey::getPubCompressed(void) const
+{
+   return CryptoECDSA().CompressPoint(pubKey_);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
-SecureBinaryData HDWalletCrypto::hash512(SecureBinaryData const & data)
+SecureBinaryData ExtendedKey::getPubUncompressed(void) const
 {
-   static CryptoPP::SHA512 sha512;
-   SecureBinaryData theHash(64) ;
-   sha512.CalculateDigest(theHash.getPtr(), data.getPtr(), data.getSize());
-   return theHash;
+   return CryptoECDSA().UncompressPoint(pubKey_);
 }
-                                            
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1013,7 +1036,7 @@ SecureBinaryData HDWalletCrypto::HMAC_SHA512(SecureBinaryData key,
 
    // Reduce large keys via hash-function
    if(key.getSize() > BLOCKSIZE)
-      key = hash512(key);
+      key = BtcUtils::getSHA512(key);
 
 
    // Zero-pad smaller keys
@@ -1031,12 +1054,12 @@ SecureBinaryData HDWalletCrypto::HMAC_SHA512(SecureBinaryData key,
 
    // Inner hash operation
    i_key_pad.append(msg);
-   i_key_pad = hash512(i_key_pad);
+   i_key_pad = BtcUtils::getSHA512(i_key_pad);
 
 
    // Outer hash operation
    o_key_pad.append(i_key_pad);
-   o_key_pad = hash512(o_key_pad);
+   o_key_pad = BtcUtils::getSHA512(o_key_pad);
    
 
    return o_key_pad;
@@ -1075,6 +1098,7 @@ ExtendedKey HDWalletCrypto::ChildKeyDeriv( ExtendedKey const & extKey,
    SecureBinaryData I_right( I.getPtr()+32,  32 );
 
    SecureBinaryData newKey;
+   SecureBinaryData parFinger = extKey.getFingerprint();
 
    // The new keys should have an index list one bigger
    list<uint32_t> newList = extKey.getIndicesList();
@@ -1083,9 +1107,8 @@ ExtendedKey HDWalletCrypto::ChildKeyDeriv( ExtendedKey const & extKey,
    if(extKey.hasPriv())
    {
       // This computes the private key, and lets ExtendedKey compute pub
-      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyScalars(I_left, 
-                                                                extKey.getPriv()));
-      return ExtendedKey().CreateFromPrivate(newKey, I_right, newList);
+      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyScalars(I_left, extKey.getPriv()));
+      return ExtendedKey().CreateFromPrivate(newKey, I_right, parFinger, newList);
    }
    else
    {
@@ -1094,7 +1117,7 @@ ExtendedKey HDWalletCrypto::ChildKeyDeriv( ExtendedKey const & extKey,
       newKey = SecureBinaryData(CryptoECDSA().ECMultiplyPoint(I_left, 
                                                               extKey.getPub(), 
                                                               doCompress));
-      return ExtendedKey().CreateFromPublic(newKey, I_right, newList);
+      return ExtendedKey().CreateFromPublic(newKey, I_right, parFinger, newList);
    }
 }
 

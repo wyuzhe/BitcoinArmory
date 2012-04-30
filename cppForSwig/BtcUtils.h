@@ -477,6 +477,75 @@ public:
    }
 
 
+
+   /////////////////////////////////////////////////////////////////////////////
+   // 
+   static void getSHA512(uint8_t const * strToHash,
+                         uint32_t        nBytes,
+                         BinaryData &    hashOutput)
+   {
+      static CryptoPP::SHA512 sha512_;
+      if(hashOutput.getSize() != 64)
+         hashOutput.resize(64);
+
+      sha512_.CalculateDigest(hashOutput.getPtr(), strToHash, nBytes);
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static void getSHA512_NoSafetyCheck(
+                          uint8_t const * strToHash,
+                          uint32_t        nBytes,
+                          BinaryData &    hashOutput)
+   {
+      static CryptoPP::SHA512 sha512_;
+
+      sha512_.CalculateDigest(hashOutput.getPtr(), strToHash, nBytes);
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static BinaryData getSHA512(uint8_t const * strToHash,
+                               uint32_t        nBytes)
+   {
+      static CryptoPP::SHA512 sha512_;
+
+      BinaryData hashOutput(64);
+      sha512_.CalculateDigest(hashOutput.getPtr(), strToHash, nBytes);
+      return hashOutput;
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static void getSHA512(BinaryData const & strToHash, 
+                         BinaryData &       hashOutput)
+   {
+      getSHA512(strToHash.getPtr(), strToHash.getSize(), hashOutput);
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static void getSHA512(BinaryDataRef const & strToHash, 
+                         BinaryData          & hashOutput)
+   {
+      getSHA512(strToHash.getPtr(), strToHash.getSize(), hashOutput);
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static BinaryData getSHA512(BinaryData const & strToHash)
+   {
+      BinaryData hashOutput(64);
+      getSHA512(strToHash.getPtr(), strToHash.getSize(), hashOutput);
+      return hashOutput;
+   }
+
+
+   /////////////////////////////////////////////////////////////////////////////
+   static BinaryData getSHA512(BinaryDataRef const & strToHash)
+   {
+      BinaryData hashOutput(64);
+      getSHA512(strToHash.getPtr(), strToHash.getSize(), hashOutput);
+      return hashOutput;
+   }
+
+
+
    /////////////////////////////////////////////////////////////////////////////
    static BinaryData calculateMerkleRoot(vector<BinaryData> const & txhashlist)
    {
