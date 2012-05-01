@@ -362,7 +362,7 @@ def RightNowUTC():
 try:
    import CppBlockUtils as Cpp
    from CppBlockUtils import KdfRomix, CryptoECDSA, CryptoAES, SecureBinaryData
-   from CppBlockUtils import CryptoECDSA_1_35, SecureBinaryData_1_35
+   from CppBlockUtils import KdfRomix_1_35, CryptoECDSA_1_35, CryptoAES_1_35, SecureBinaryData_1_35
 except:
    print '***ERROR:  C++ block utilities not available.'
    print '           Make sure that you have the SWIG-compiled modules'
@@ -9405,6 +9405,23 @@ def checkSatoshiEncrypted(wltPath):
 
 
 
+################################################################################
+def convertKeyDataToAddress_1_35(privKey=None, pubKey=None):
+   if not privKey and not pubKey:
+      raise BadAddressError, 'No key data supplied for conversion'
+   elif privKey:
+      if isinstance(privKey, str):
+         privKey = SecureBinaryData_1_35(privKey)
+
+      if not privKey.getSize()==32:
+         raise BadAddressError, 'Invalid private key format!'
+      else:
+         pubKey = CryptoECDSA_1_35().ComputePublicKey(privKey)
+
+   if isinstance(pubKey,str):
+      pubKey = SecureBinaryData_1_35(pubKey)
+   return pubKey.getHash160()
+
 
 ################################################################################
 class PyBtcAddress_1_35(object):
@@ -9615,7 +9632,7 @@ class PyBtcAddress_1_35(object):
          return False
 
 
-      decryptedKey = CryptoAES().DecryptCFB( self.binPrivKey32_Encr, \
+      decryptedKey = CryptoAES_1_35().DecryptCFB( self.binPrivKey32_Encr, \
                                              SecureBinaryData_1_35(secureKdfOutput), \
                                              self.binInitVect16)
       verified = False
@@ -9722,7 +9739,7 @@ class PyBtcAddress_1_35(object):
       assert(plainPrivKey.getSize()==32)
 
       if not addr160:
-         addr160 = convertKeyDataToAddress(privKey=plainPrivKey)
+         addr160 = convertKeyDataToAddress_1_35(privKey=plainPrivKey)
 
       self.__init__()
       self.addrStr20 = addr160
@@ -9794,7 +9811,7 @@ class PyBtcAddress_1_35(object):
                      newIV = True
 
                # Finally execute the encryption
-               self.binPrivKey32_Encr = CryptoAES().EncryptCFB( \
+               self.binPrivKey32_Encr = CryptoAES_1_35().EncryptCFB( \
                                                 self.binPrivKey32_Plain, \
                                                 SecureBinaryData_1_35(secureKdfOutput), \
                                                 self.binInitVect16)
@@ -9831,7 +9848,7 @@ class PyBtcAddress_1_35(object):
          # This is SPECIFICALLY for the case that we didn't have the encr key
          # available when we tried to extend our deterministic wallet, and
          # generated a new address anyway
-         self.binPrivKey32_Plain = CryptoAES().DecryptCFB( \
+         self.binPrivKey32_Plain = CryptoAES_1_35().DecryptCFB( \
                                      self.createPrivKeyNextUnlock_IVandKey[1], \
                                      SecureBinaryData_1_35(secureKdfOutput), \
                                      self.createPrivKeyNextUnlock_IVandKey[0])
@@ -9860,7 +9877,7 @@ class PyBtcAddress_1_35(object):
          if not self.binInitVect16.getSize()==16:
             raise WalletLockError, 'Initialization Vect (IV) is missing!'
 
-         self.binPrivKey32_Plain = CryptoAES().DecryptCFB( \
+         self.binPrivKey32_Plain = CryptoAES_1_35().DecryptCFB( \
                                         self.binPrivKey32_Encr, \
                                         secureKdfOutput, \
                                         self.binInitVect16)
@@ -10376,7 +10393,7 @@ class PyBtcAddress_1_35(object):
       if containsPubKey:
          if not pubKey.getSize()==65:
             if self.binPrivKey32_Plain.getSize()==32:
-               pubKey = CryptoAES().ComputePublicKey(self.binPrivKey32_Plain)
+               pubKey = CryptoAES_1_35().ComputePublicKey(self.binPrivKey32_Plain)
             else:
                raise UnserializeError, 'Checksum mismatch in PublicKey ' +\
                                        '('+hash160_to_addrStr(self.addrStr20)+')'
@@ -11516,7 +11533,7 @@ class PyBtcWallet_1_35(object):
          binUnpacker = BinaryUnpacker(toUnpack)
 
       binUnpacker.get(BINARY_CHUNK, binWidth)
-      return CryptoAES()
+      return CryptoAES_1_35()
 
    #############################################################################
    def verifyPassphrase(self, securePassphrase):
@@ -12443,7 +12460,7 @@ class PyBtcWallet_1_35(object):
             privKey = SecureBinaryData_1_35(verifyChecksum(privKey.toBinStr(), privChk))
 
          computedPubkey = CryptoECDSA_1_35().ComputePublicKey(privKey)
-         computedAddr20 = convertKeyDataToAddress(pubKey=computedPubkey)
+         computedAddr20 = convertKeyDataToAddress_1_35(pubKey=computedPubkey)
 
       # If public key is provided, we prep it so we can verify Pub/Priv match
       if pubKey:
@@ -12453,7 +12470,7 @@ class PyBtcWallet_1_35(object):
             pubKey = SecureBinaryData_1_35(verifyChecksum(pubKey.toBinStr(), pubChk))
 
          if not computedAddr20:
-            computedAddr20 = convertKeyDataToAddress(pubKey=pubKey)
+            computedAddr20 = convertKeyDataToAddress_1_35(pubKey=pubKey)
 
       # The 20-byte address (pubkey hash160) should always be a python string
       if addr20:

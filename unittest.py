@@ -30,7 +30,7 @@ Test_ReactorLoop      = False
 Test_SettingsFile     = False
 Test_WalletMigrate    = False
 Test_AddressBooks     = False
-Test_URIParse         = True
+Test_URIParse         = False
 
 Test_TxSimpleCreate_1_35   = True
 Test_EncryptedAddress_1_35 = True
