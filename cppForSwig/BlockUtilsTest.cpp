@@ -69,8 +69,8 @@ int main(void)
    //printTestHeader("Find-Non-Standard-Tx");
    //TestFindNonStdTx(blkfile);
 
-   //printTestHeader("Read-and-Organize-Blockchain-With-Wallet");
-   //TestReadAndOrganizeChainWithWallet(blkfile);
+   printTestHeader("Read-and-Organize-Blockchain-With-Wallet");
+   TestReadAndOrganizeChainWithWallet(blkfile);
 
    //printTestHeader("Blockchain-Reorg-Unit-Test");
    //TestReorgBlockchain(blkfile);

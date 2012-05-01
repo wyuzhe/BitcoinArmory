@@ -35,7 +35,7 @@ Test_URIParse         = False
 Test_TxSimpleCreate_1_35   = True
 Test_EncryptedAddress_1_35 = True
 Test_EncryptedWallet_1_35  = True
-Test_TxDistProposals_1_35  = True
+Test_TxDistProposals_1_35  = False
 
 '''
 import optparse
@@ -66,6 +66,8 @@ def testFunction( fnName, expectedOutput, *args, **kwargs):
       print '\t','___ActOut___:', actualOutput
          
    
+SUM_PASS_FAIL = [0, 0]
+
 def printpassorfail(abool):
    """
    Print a simple, formatted pass/fail string  
@@ -73,8 +75,10 @@ def printpassorfail(abool):
    w = 60
    if abool:
       print '\n' + ' '*w + '*** PASSED ***',
+      SUM_PASS_FAIL[0] += 1
    else:
       print '\n' + ' '*w + '___ FAILED ___',
+      SUM_PASS_FAIL[1] += 1
 
 
 
@@ -1446,7 +1450,7 @@ if Test_EncryptedWallet:
    wlt.setBlockchainSyncFlag(BLOCKCHAIN_READONLY)
    wlt.syncWithBlockchain()
 
-   utxoList = wlt.getUnspentTxOutList()
+   utxoList = wlt.getTxOutList()
    pprintUnspentTxOutList(utxoList, 'Unspent TxOuts for your wallet: ')
 
    nBTC = 1.4*ONE_BTC
@@ -1494,7 +1498,7 @@ if Test_EncryptedWallet:
    wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
    
    print '\n(11) Search for unspent TxOuts for this online wallet'
-   utxoList = wlt2.getUnspentTxOutList()
+   utxoList = wlt2.getTxOutList()
    pprintUnspentTxOutList(utxoList, 'Unspent TxOuts for your wallet: ')
 
    nBTC = 1.4*ONE_BTC
@@ -1520,8 +1524,15 @@ if Test_EncryptedWallet:
       print '\n\n(11) Attempting to sign TxDP with online wallet'
       wlt2.signTxDistProposal(txdp)
 
-   os.remove('OnlineVersionOfEncryptedWallet.bin')
-   os.remove('OnlineVersionOfEncryptedWalletbackup.bin')
+   try:
+      os.remove('OnlineVersionOfEncryptedWallet.bin')
+   except:
+      pass
+
+   try:
+      os.remove('OnlineVersionOfEncryptedWalletbackup.bin')
+   except:
+      pass
 
 
 
@@ -2731,7 +2742,7 @@ if Test_EncryptedWallet:
    wlt.setBlockchainSyncFlag(BLOCKCHAIN_READONLY)
    wlt.syncWithBlockchain()
 
-   utxoList = wlt.getUnspentTxOutList()
+   utxoList = wlt.getTxOutList()
    pprintUnspentTxOutList(utxoList, 'Unspent TxOuts for your wallet: ')
 
    nBTC = 1.4*ONE_BTC
@@ -2779,7 +2790,7 @@ if Test_EncryptedWallet:
    wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
    
    print '\n(11) Search for unspent TxOuts for this online wallet'
-   utxoList = wlt2.getUnspentTxOutList()
+   utxoList = wlt2.getTxOutList()
    pprintUnspentTxOutList(utxoList, 'Unspent TxOuts for your wallet: ')
 
    nBTC = 1.4*ONE_BTC
@@ -2807,3 +2818,626 @@ if Test_EncryptedWallet:
 
    os.remove('OnlineVersionOfEncryptedWallet.bin')
    os.remove('OnlineVersionOfEncryptedWalletbackup.bin')
+
+
+
+
+################################################################################
+################################################################################
+if Test_EncryptedWallet_1_35:
+   print '\n'
+   print '*********************************************************************'
+   print 'Testing deterministic, encrypted wallet features'
+   print '*********************************************************************'
+   print ''
+
+   debugPrint = False
+   debugPrintAlot = False
+
+   # Remove wallet files, need fresh dir for this test
+   
+   shortlabel = 'TestWallet1'
+   wltID = '3VB8XSmd'
+   if USE_TESTNET:
+      wltID = '3VB8XSoY'
+      
+   fileA    = os.path.join(ARMORY_HOME_DIR, 'armory_%s_.wallet' % wltID)
+   fileB    = os.path.join(ARMORY_HOME_DIR, 'armory_%s_backup.wallet' % wltID)
+   fileAupd = os.path.join(ARMORY_HOME_DIR, 'armory_%s_backup_unsuccessful.wallet' % wltID)
+   fileBupd = os.path.join(ARMORY_HOME_DIR, 'armory_%s_update_unsuccessful.wallet' % wltID)
+
+   for f in (fileA, fileB, fileAupd, fileBupd):
+      print 'Removing file:', f, 
+      if os.path.exists(f):
+         os.remove(f)
+         print '...removed!'
+      else:
+         print '(DNE, do nothing)'
+   
+   # We need a controlled test, so we script the all the normally-random stuff
+   privKey   = SecureBinaryData_1_35('\xaa'*32)
+   privKey2  = SecureBinaryData_1_35('\x33'*32)
+   chainstr  = SecureBinaryData_1_35('\xee'*32)
+   theIV     = SecureBinaryData_1_35(hex_to_binary('77'*16))
+   passphrase  = SecureBinaryData_1_35('A passphrase')
+   passphrase2 = SecureBinaryData_1_35('A new passphrase')
+      
+   wlt = PyBtcWallet_1_35().createNewWallet(withEncrypt=False, \
+                                       plainRootKey=privKey, \
+                                       chaincode=chainstr,   \
+                                       IV=theIV, \
+                                       shortLabel=shortlabel)
+   wlt.addrPoolSize = 5
+   wlt.detectHighestUsedIndex(True)
+
+   print 'New wallet is at:', wlt.getWalletPath()
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+
+
+   #############################################################################
+   print '\n(1) Getting a new address:'
+   newAddr = wlt.getNextUnusedAddress()
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   print '\n(1) Re-reading wallet from file, compare the two wallets'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.walletPath)
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   printpassorfail(wlt.isEqualTo(wlt2, debug=debugPrintAlot))
+   
+   #############################################################################
+   print '\n(2)Testing unencrypted wallet import-address'
+   wlt.importExternalAddressData(privKey=privKey2)
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   
+   print '\n(2) Re-reading wallet from file, compare the two wallets'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.walletPath)
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   printpassorfail(wlt.isEqualTo(wlt2, debug=debugPrintAlot))
+
+   print '\n(2a)Testing deleteImportedAddress'
+   print '\nWallet size before delete:',  os.path.getsize(wlt.walletPath)
+   print '\n#Addresses before delete:', len(wlt.linearAddr160List)
+   toDelete160 = convertKeyDataToAddress_1_35(privKey2)
+   wlt.deleteImportedAddress(toDelete160)
+   print '\nWallet size after delete:',  os.path.getsize(wlt.walletPath)
+   print '\n(2a) #Addresses after delete:', len(wlt.linearAddr160List)
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   print '\n(2a) Reimporting address for remaining tests'
+   print '\nWallet size before reimport:',  os.path.getsize(wlt.walletPath)
+   wlt.importExternalAddressData(privKey=privKey2)
+   print '\nWallet size after  reimport:',  os.path.getsize(wlt.walletPath)
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+
+   print '\n(2b)Testing ENCRYPTED wallet import-address'
+   privKey3  = SecureBinaryData_1_35('\xbb'*32)
+   privKey4  = SecureBinaryData_1_35('\x44'*32)
+   chainstr2  = SecureBinaryData_1_35('\xdd'*32)
+   theIV2     = SecureBinaryData_1_35(hex_to_binary('66'*16))
+   passphrase2= SecureBinaryData_1_35('hello')
+   wltE = PyBtcWallet_1_35().createNewWallet(withEncrypt=True, \
+                                       plainRootKey=privKey3, \
+                                       securePassphrase=passphrase2, \
+                                       chaincode=chainstr2,   \
+                                       IV=theIV2, \
+                                       shortLabel=shortlabel)
+
+   try:
+      wltE.importExternalAddressData(privKey=privKey2)
+      wltE.pprint(indent=' '*5, allAddrInfo=debugPrint)
+      printpassorfail(False)
+      print 'FAILED!  We should have thrown an error about importing into a '
+      print '         locked wallet...'
+   except:
+      printpassorfail(True)
+
+
+   wltE.unlock(securePassphrase=passphrase2)
+   wltE.importExternalAddressData(privKey=privKey2)
+   wltE.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   print '\n(2b) Re-reading wallet from file, compare the two wallets'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wltE.walletPath)
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   printpassorfail(wltE.isEqualTo(wlt2, debug=debugPrintAlot))
+   
+
+   print '\n(2b) Unlocking wlt2 after re-reading locked-import-wallet'
+   wlt2.unlock(securePassphrase=passphrase2)
+
+
+
+   #############################################################################
+   # Now play with encrypted wallets
+   print '\n\n'
+   print '*********************************************************************'
+   print '\n(3)Testing conversion to encrypted wallet'
+
+   kdfParams = wlt.computeSystemSpecificKdfParams(0.1)
+   wlt.changeKdfParams(*kdfParams)
+
+   print '\n(3)New KDF takes', wlt.testKdfComputeTime(), 'seconds to compute'
+   wlt.kdf.printKdfParams()
+   wlt.changeWalletEncryption( securePassphrase=passphrase )
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   
+   print '\n(3) Re-reading wallet from file, compare the two wallets'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.getWalletPath())
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   printpassorfail(wlt.isEqualTo(wlt2, debug=debugPrintAlot))
+   # NOTE:  this isEqual operation compares the serializations
+   #        of the wallet addresses, which only contains the 
+   #        encrypted versions of the private keys.  However,
+   #        wlt is unlocked and contains the plaintext keys, too
+   #        while wlt2 does not.
+
+   print '\n(3)Look at wlt again, before we lock it'
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   wlt.lock()
+   print '\n(3)And now it should be locked...'
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+
+   #############################################################################
+   print '\n(4)Testing changing passphrase on encrypted wallet',
+
+   wlt.unlock( securePassphrase=passphrase )
+   print '...to same passphrase'
+   wlt.changeWalletEncryption( securePassphrase=passphrase )
+
+   print '\n(4)And now testing new passphrase...'
+   wlt.changeWalletEncryption( securePassphrase=passphrase2 )
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   
+   print '\n(4) Re-reading wallet from file, compare the two wallets'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.getWalletPath())
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   printpassorfail(wlt.isEqualTo(wlt2, debug=debugPrintAlot))
+
+   #############################################################################
+   print '\n(5)Testing changing KDF on encrypted wallet'
+
+   wlt.unlock( securePassphrase=passphrase2 )
+   print '\n(5)Before kdf change:'
+   wlt.kdf.printKdfParams()
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   wlt.changeKdfParams(1024, 999, hex_to_binary('00'*32), passphrase2)
+   print '\n(5)After kdf change:'
+   wlt.kdf.printKdfParams()
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   print '\n(5) And now changing the encryption to the same, again'
+   wlt.changeWalletEncryption( securePassphrase=passphrase2 )
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   print '\n(5) Get new address from locked wallet'
+   print 'Locking wallet'
+   wlt.lock()
+   for i in range(10):
+      wlt.getNextUnusedAddress()
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   
+   print '\n(5) Re-reading wallet from file, compare the two wallets'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.getWalletPath())
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   printpassorfail(wlt.isEqualTo(wlt2, debug=debugPrintAlot))
+
+   #############################################################################
+   # !!!  #forkOnlineWallet()
+   print '\n(6)Testing forking encrypted wallet for online mode'
+   wlt.forkOnlineWallet('OnlineVersionOfEncryptedWallet.bin')
+   wlt2.readWalletFile('OnlineVersionOfEncryptedWallet.bin')
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   print '\n(6)Getting a new addresses from both wallets'
+   for i in range(wlt.addrPoolSize*2):
+      wlt.getNextUnusedAddress()
+      wlt2.getNextUnusedAddress()
+
+   newaddr1 = wlt.getNextUnusedAddress()
+   print 'New address (reg):   ', newaddr1.getAddrStr()
+   newaddr2 = wlt2.getNextUnusedAddress()
+   print 'New address (online):', newaddr2.getAddrStr()
+
+   printpassorfail(newaddr1.getAddr160() == newaddr2.getAddr160())
+
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   print '\n(6) Re-reading wallet from file, compare the two wallets'
+   wlt3 = PyBtcWallet_1_35().readWalletFile('OnlineVersionOfEncryptedWallet.bin')
+   wlt3.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+
+   #############################################################################
+   print '\n(7)Testing removing wallet encryption'
+   print 'Wallet is locked?  ', wlt.isLocked
+   wlt.unlock(securePassphrase=passphrase2)
+   wlt.changeWalletEncryption( None )
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   print '\n(7) Re-reading wallet from file, compare the two wallets'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.getWalletPath())
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   printpassorfail(wlt.isEqualTo(wlt2, debug=debugPrintAlot))
+
+   #############################################################################
+   print '\n\n'
+   print '*********************************************************************'
+   print '\n(8)Doing interrupt tests to test wallet-file-update recovery'
+   def hashfile(fn):
+      f = open(fn,'r')
+      d = hash256(f.read())
+      f.close()
+      return binary_to_hex(d[:8])
+   
+   def printfilestatus(fn):
+      if os.path.exists(fn):
+         print '   ', hashfile(fn), '   ', fn.split('/')[-1]
+      else:
+         print '   ', 'No file:'.ljust(16), '   ', fn.split('/')[-1]
+
+   def printstat():
+      printfilestatus(fileA)
+      printfilestatus(fileB)
+      printfilestatus(fileAupd)
+      printfilestatus(fileBupd)
+
+   print '\n(8a)Starting test with the unencrypted wallet from part (6)'
+   printstat()
+   correctMainHash = hashfile(fileA)
+
+   try:
+      wlt.interruptTest1 = True
+      wlt.getNextUnusedAddress()
+   except InterruptTestError:
+      print 'Interrupted!'
+      pass
+   wlt.interruptTest1 = False
+
+   print '\n(8a)Interrupted getNextUnusedAddress on primary file update'
+   printstat()
+   print '\n(8a)Do consistency check on the wallet'
+   wlt.doWalletFileConsistencyCheck()
+   printstat()
+   printpassorfail(correctMainHash==hashfile(fileA))
+   
+   print '\n(8b) Try interrupting at state 2'
+   printstat()
+
+   try:
+      wlt.interruptTest2 = True
+      wlt.getNextUnusedAddress()
+   except InterruptTestError:
+      print 'Interrupted!'
+      pass
+   wlt.interruptTest2 = False
+
+   print '\n(8b)Interrupted getNextUnusedAddress on between primary/backup update'
+   printstat()
+   print '\n(8b)Do consistency check on the wallet'
+   wlt.doWalletFileConsistencyCheck()
+   printstat()
+   printpassorfail(hashfile(fileA)==hashfile(fileB))
+
+
+
+   print '\n(8c) Try interrupting at state 3'
+   printstat()
+
+   try:
+      wlt.interruptTest3 = True
+      wlt.getNextUnusedAddress()
+   except InterruptTestError:
+      print 'Interrupted!'
+      pass
+   wlt.interruptTest3 = False
+
+   print '\n(8c)Interrupted getNextUnusedAddress on backup file update'
+   printstat()
+   print '\n(8c)Do consistency check on the wallet'
+   wlt.doWalletFileConsistencyCheck()
+   printstat()
+   printpassorfail(hashfile(fileA)==hashfile(fileB))
+
+
+   #############################################################################
+   print '\n\n'
+   print '*********************************************************************'
+   print '\n(9)Checksum-based byte-error correction tests!'
+   print '\n(9)Start with a good primary and backup file...'
+   printstat()
+
+   print '\n(9a)Open primary wallet, change second byte in KDF'
+   wltfile = open(wlt.walletPath,'r+b')
+   wltfile.seek(326)
+   wltfile.write('\xff')
+   wltfile.close()
+   print '\n(9a)Byte changed, file hashes:'
+   printstat()
+
+   print '\n(9a)Try to read wallet from file, should correct KDF error, write fix'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.walletPath)
+   printstat()
+   printpassorfail(hashfile(fileA)==hashfile(fileB))
+
+   print '\n\n'
+   print '*********************************************************************'
+   print '\n(9b)Change a byte in each checksummed field in root addr'
+   wltfile = open(wlt.walletPath,'r+b')
+   wltfile.seek(838);  wltfile.write('\xff')
+   wltfile.seek(885);  wltfile.write('\xff')
+   wltfile.seek(929);  wltfile.write('\xff')
+   wltfile.seek(954);  wltfile.write('\xff')
+   wltfile.seek(1000);  wltfile.write('\xff')
+   wltfile.close()
+   print '\n(9b) New file hashes...'
+   printstat()
+
+   print '\n(9b)Try to read wallet from file, should correct address errors'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.walletPath)
+   printstat()
+   printpassorfail(hashfile(fileA)==hashfile(fileB))
+   
+   print '\n\n'
+   print '*********************************************************************'
+   print '\n(9c)Change a byte in each checksummed field, of first non-root addr'
+   wltfile = open(wlt.walletPath,'r+b')
+   wltfile.seek(1261+21+838);  wltfile.write('\xff')
+   wltfile.seek(1261+21+885);  wltfile.write('\xff')
+   wltfile.seek(1261+21+929);  wltfile.write('\xff')
+   wltfile.seek(1261+21+954);  wltfile.write('\xff')
+   wltfile.seek(1261+21+1000);  wltfile.write('\xff')
+   wltfile.close()
+   print '\n(9c) New file hashes...'
+   printstat()
+
+   print '\n(9c)Try to read wallet from file, should correct address errors'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.walletPath)
+   printstat()
+   printpassorfail(hashfile(fileA)==hashfile(fileB))
+
+   print '\n\n'
+   print '*********************************************************************'
+   print '\n(9d)Now butcher the CHECKSUM, see if correction works'
+   wltfile = open(wlt.walletPath,'r+b')
+   wltfile.seek(977); wltfile.write('\xff')
+   wltfile.close()
+   print '\n(9d) New file hashes...'
+   printstat()
+
+   print '\n(9d)Try to read wallet from file, should correct address errors'
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.walletPath)
+   printstat()
+   printpassorfail(hashfile(fileA)==hashfile(fileB))
+
+
+   print '*******'
+   print '\n(9z) Test comment I/O'
+   comment1 = 'This is my normal unit-testing address.'
+   comment2 = 'This is fake tx... no tx has this hash.'
+   comment3 = comment1 + '  Corrected!'
+   hash1 = '\x1f'*20  # address160
+   hash2 = '\x2f'*32  # tx hash
+   wlt.setComment(hash1, comment1)
+   wlt.setComment(hash2, comment2)
+   wlt.setComment(hash1, comment3)
+
+   wlt2 = PyBtcWallet_1_35().readWalletFile(wlt.walletPath)
+   c3 = wlt2.getComment(hash1)
+   c2 = wlt2.getComment(hash2)
+   print c3
+   print c2
+   printpassorfail(c3==comment3)
+   printpassorfail(c2==comment2)
+
+   
+
+   #############################################################################
+   print '\n\n'
+   print '*********************************************************************'
+   print '\n(10) Finally!  Start the wallet tests involving the blockchain!'
+
+   print '\n(10) Add an address with some money to this wallet'
+   binPrivKey = hex_to_binary('a47a7e263f9ec17d7fbb4a649541001e8bb1266917aa77f5773810d7d81f00a5')
+   newAddr20 = wlt.importExternalAddressData( privKey=binPrivKey )
+   if debugPrint: wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   
+
+
+   print '\n(10) Make sure C++ has all the addresses:'
+   cppwlt = wlt.cppWallet
+   naddr = cppwlt.getNumAddr()
+   for i in range(naddr):
+      print '   Address:', hash160_to_addrStr(cppwlt.getAddrByIndex(i).getAddrStr20())
+
+   
+   print '\n(10) Loading blockchain from blk0001.dat'
+   TheBDM.Reset()
+   TheBDM.registerWallet(cppwlt)
+   BDM_LoadBlockchainFile()  # looks for blk0001.dat in satoshi client location
+
+   print '\n(10) Now syncing this wallet with the blockchain'
+   # While using the blk0001.dat maintained by satoshi client, never write data
+   wlt.setBlockchainSyncFlag(BLOCKCHAIN_READONLY)
+   wlt.syncWithBlockchain()
+
+   utxoList = wlt.getTxOutList()
+   pprintUnspentTxOutList(utxoList, 'Unspent TxOuts for your wallet: ')
+
+   nBTC = 1.4*ONE_BTC
+   print '\n(10) Select inputs for a', coin2str(nBTC), 'BTC tx to myself'
+   prelimSelection = PySelectCoins(utxoList, nBTC, minFee=0)
+   feeRecommended = calcMinSuggestedFees(prelimSelection, nBTC, 0)
+   pprintUnspentTxOutList(prelimSelection, 'Selected TxOuts for (tgt,fee)=(%s,%s)' % \
+                           (coin2str(nBTC), coin2str(0)))
+   print '*Recommended fees:  AbsMin=%s, Suggest=%s' % tuple([coin2str(f) for f in feeRecommended])
+   recip = addrStr_to_hash160('1F7G4aq9fbAhqGb9jcnsVn6CRm6dqJf3sD')
+
+   theSum = sumTxOutList(prelimSelection)
+   recipPairs = [ \
+         [recip, nBTC], \
+         [newAddr20, theSum-nBTC] ]
+
+   if theSum==0:
+      print 'Not enough funds.  Skipping TxDP construction'
+   else:
+      print '\n\n(10)Creating TxDistProposal:'
+      txdp = PyTxDistProposal().createFromTxOutSelection(prelimSelection, recipPairs)
+      if debugPrint: txdp.pprint('   ')
+      print '\n\n(10)Signing the TxDP:'
+      wlt.signTxDistProposal(txdp)
+      if debugPrint: txdp.pprint('   ')
+   
+      txToBroadcast = txdp.prepareFinalTx()
+      print ''
+      txToBroadcast.pprint()
+      print ''
+
+      print binary_to_hex(txToBroadcast.serialize())
+      pprintHex(binary_to_hex(txToBroadcast.serialize()))
+
+
+
+
+   #############################################################################
+   print '\n\n'
+   print '*********************************************************************'
+   print '\n(11) One more blockchain test, this time with online/watching-only'
+   wlt2.readWalletFile('OnlineVersionOfEncryptedWallet.bin')
+   wlt2.doBlockchainSync=BLOCKCHAIN_READONLY  
+   wlt2.syncWithBlockchain()
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   
+   print '\n(11) Search for unspent TxOuts for this online wallet'
+   utxoList = wlt2.getTxOutList()
+   pprintUnspentTxOutList(utxoList, 'Unspent TxOuts for your wallet: ')
+
+   nBTC = 1.4*ONE_BTC
+   print '\n(11) Select inputs for a', coin2str(nBTC), 'BTC tx to myself'
+   prelimSelection = PySelectCoins(utxoList, nBTC, minFee=0)
+   feeRecommended = calcMinSuggestedFees(prelimSelection, nBTC, 0)
+   pprintUnspentTxOutList(prelimSelection, 'Selected TxOuts for (tgt,fee)=(%s,%s)' % \
+                           (coin2str(nBTC), coin2str(0)))
+   print '*Recommended fees:  AbsMin=%s, Suggest=%s' % tuple([coin2str(f) for f in feeRecommended])
+   recip = addrStr_to_hash160('1F7G4aq9fbAhqGb9jcnsVn6CRm6dqJf3sD')
+
+   theSum = sumTxOutList(prelimSelection)
+   recipPairs = [ \
+         [recip, nBTC], \
+         [recip, theSum-nBTC] ]
+
+   if theSum == 0:
+      print 'Not enough funds.... skipping tx construction'
+   else:
+      print '\n\n(11)Creating TxDistProposal:'
+      txdp = PyTxDistProposal().createFromTxOutSelection(prelimSelection, recipPairs)
+      if debugPrint: txdp.pytxObj.pprint()
+      print '\n\n(11) Attempting to sign TxDP with online wallet'
+      wlt2.signTxDistProposal(txdp)
+
+   try:
+      os.remove('OnlineVersionOfEncryptedWallet.bin')
+   except:
+      pass
+
+   try:
+      os.remove('OnlineVersionOfEncryptedWalletbackup.bin')
+   except:
+      pass
+
+
+################################################################################
+################################################################################
+if Test_TxDistProposals_1_35:
+   print ''
+   print '*********************************************************************'
+   print 'Testing Tx Distribution Proposals for offline signatures'
+   print '*********************************************************************'
+   print ''
+   print 'Create a valid tx, serialize it, unserialize it, sign it'
+
+   debugPrint = True
+
+   print '\n(1) Create a wallet, add our address'
+   privKey = SecureBinaryData_1_35(hex_to_binary('aa'*32))
+   pubKey  = CryptoECDSA_1_35().ComputePublicKey(privKey)
+   addr20  = pubKey.getHash160()
+   wlt = PyBtcWallet_1_35().createNewWallet(withEncrypt=False)
+
+
+   binPrivKey = hex_to_binary('a47a7e263f9ec17d7fbb4a649541001e8bb1266917aa77f5773810d7d81f00a5')
+   myOwnAddr160 = wlt.importExternalAddressData( privKey=binPrivKey )
+   wlt.pprint(indent=' '*5, allAddrInfo=False)
+   
+   BDM_LoadBlockchainFile()  # looks for blk0001.dat in satoshi client location
+   wlt.setBlockchainSyncFlag(BLOCKCHAIN_READONLY)
+
+   # Get all the unspent TxOuts for this addr
+   wlt.syncWithBlockchain()
+   utxoList = wlt.getTxOutList('Spendable')
+   pprintUnspentTxOutList(utxoList, 'Unspent TxOuts for your wallet: ')
+
+   nBTC = 0.05*ONE_BTC
+   print '\n(1) Select inputs for a', coin2str(nBTC), 'BTC tx to myself'
+   prelimSelection = PySelectCoins(utxoList, nBTC, minFee=0)
+   pprintUnspentTxOutList(prelimSelection, 'Selected TxOuts for (tgt,fee)=(%s,%s)' % \
+                                                   (coin2str(nBTC), coin2str(0)))
+   recip160 = addrStr_to_hash160('1F7G4aq9fbAhqGb9jcnsVn6CRm6dqJf3sD')
+
+   theSum = sumTxOutList(prelimSelection)
+   recipPairs = [  [recip160,     nBTC], \
+                   [myOwnAddr160, theSum-nBTC] ]
+
+   print '\n(1)Creating TxDistProposal:'
+   txdp = PyTxDistProposal().createFromTxOutSelection(prelimSelection, recipPairs)
+
+   print '\n(1)Serializing:'
+   asciiBlock = txdp.serializeAscii()
+   for l in asciiBlock.split('\n'):
+      print '   ', l
+
+   print '\n(1)Unserializing'
+   txdp2 = PyTxDistProposal().unserializeAscii(asciiBlock)
+   print '\n(1) TxDP has enough signatures?', txdp.checkTxHasEnoughSignatures()
+      
+   txdp2.pprint()
+   print '\n(1)Sign it, now'
+   txdpSigned = wlt.signTxDistProposal(txdp2)
+   print '\n(1) Signed enough inputs?', txdpSigned.checkTxHasEnoughSignatures()
+   print '\n(1) Verified?', txdpSigned.checkTxHasEnoughSignatures(alsoVerify=True)
+
+   print '\n(1) Re-serialized signed txdp'
+   asciiBlock = txdpSigned.serializeAscii()
+   for l in asciiBlock.split('\n'):
+      print '   ', l
+   
+   print '\n(1) Preparing TxDP for broadcast'
+   txdp3 = PyTxDistProposal().unserializeAscii(asciiBlock)
+   txToBroadcast = txdpSigned.prepareFinalTx()
+   print '\n(1) Final tx to broadcast!'
+   print binary_to_hex(txToBroadcast.serialize())
+   print ''
+   pprintHex(binary_to_hex(txToBroadcast.serialize()))
+
+   # TODO: test a multisig TxDP
+
+
+
+print '*'*80
+print '*'*80
+print '*'*80
+print 'FINAL UNIT TEST RESULTS:'
+print '   Total Tests:   %d' % sum(SUM_PASS_FAIL)
+print '   Num Passed:    %d' % SUM_PASS_FAIL[0] 
+print '   Num Failed:    %d' % SUM_PASS_FAIL[1] 
+
+
+
+
+
+
+
+
