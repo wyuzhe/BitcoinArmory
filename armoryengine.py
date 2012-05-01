@@ -59,7 +59,9 @@ parser = optparse.OptionParser(usage="%prog [options]\n")
 #parser.add_option("--port", dest="port", default="8333", type="int",
                   #help="port to connect to (default: %default)")
 parser.add_option("--settings", dest="settingsPath", default='DEFAULT', type="str",
-                  help="load Armory with a specific settings file")
+                  help="Load Armory with a specific settings file")
+parser.add_option("--datadir", dest="datadir", default='DEFAULT', type="str",
+                  help="Change the directory that Armory calls home")
 parser.add_option("--testnet", dest="testnet", action="store_true", default=False,
                   help="Use the testnet protocol")
 parser.add_option("--mainnet", dest="testnet", action="store_false", default=False,
@@ -87,7 +89,7 @@ if CLI_OPTIONS.interport < 0:
 
 
 # Version Numbers -- numDigits [var, 2, 2, 3]
-BTCARMORY_VERSION    = (0, 75, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
+BTCARMORY_VERSION    = (0, 80, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
 PYBTCWALLET_VERSION  = (2, 00, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
 
 OLD_PYBTCADDRESS_VERSION = (1, 00, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
@@ -165,6 +167,13 @@ else:
    print '***Cannot determine default directory locations'
 
 BLK0001_PATH    = os.path.join(BTC_HOME_DIR, 'blk0001.dat')
+
+
+if not CLI_OPTIONS.datadir.lower()=='default':
+   if not os.path.exists(CLI_OPTIONS.datadir):
+      print 'Directory "%s" does not exist!  Using default!' % CLI_OPTIONS.datadir
+   else:
+      ARMORY_HOME_DIR = CLI_OPTIONS.datadir
 
 if CLI_OPTIONS.settingsPath.lower()=='default':
    CLI_OPTIONS.settingsPath = os.path.join(ARMORY_HOME_DIR, 'ArmorySettings.txt')
@@ -353,6 +362,7 @@ def RightNowUTC():
 try:
    import CppBlockUtils as Cpp
    from CppBlockUtils import KdfRomix, CryptoECDSA, CryptoAES, SecureBinaryData
+   from CppBlockUtils import CryptoECDSA_1_35, SecureBinaryData_1_35
 except:
    print '***ERROR:  C++ block utilities not available.'
    print '           Make sure that you have the SWIG-compiled modules'
@@ -1062,7 +1072,7 @@ def convertKeyDataToAddress(privKey=None, pubKey=None, shouldBeCompr=None):
       if not len(privKey) in (32,33):
          raise BadAddressError, 'Invalid private key format!'
       else:
-         if len(privKey)==33 
+         if len(privKey)==33:
             if not privKey[-1]=='\x01':
                raise BadAddressError, 'Invalid private key format!'
             else:
@@ -1138,8 +1148,6 @@ def parsePrivateKeyData(theStr):
          raise BadInputError, 'Unrecognized key data'
 
 
-      keyt = keyType.split(' ')[1]
-
       if len(binEntry)==32:
          # Plain Uncompressed key
          return binEntry, keyType
@@ -1154,7 +1162,7 @@ def parsePrivateKeyData(theStr):
          # If this is a problem for calling functions, then the caller should
          # should do the appropriate manipulations before passing it in
          if binEntry[-1] == comprbyte:
-            return binEntry, '%s (compressed public key)' % keyType
+            return binEntry[:32], '%s (with public key compression)' % keyType
          else:
             raise BadInputError, 'Unrecognized key data'
       elif len(binEntry)==37:
@@ -1165,7 +1173,7 @@ def parsePrivateKeyData(theStr):
          chk     = binEntry[ 33:]
          binEntry = verifyChecksum(keydata, chk)
          if not binEntry=='':
-            return binEntry[1:], '%s (compressed public key, with checksum)' % keyType
+            return binEntry[1:], '%s (with checksum)' % keyType
       elif len(binEntry)==38:
          # Compressed key in Sipa format
          if not binEntry[0] == netbyte or not binEntry[-1]==comprbyte:
@@ -1174,7 +1182,7 @@ def parsePrivateKeyData(theStr):
          chk     = binEntry[ 34:]
          binEntry = verifyChecksum(keydata, chk)
          if not binEntry=='':
-            return binEntry[1:], '%s (compressed public key, with checksum)' % keyType
+            return binEntry[1:], '%s (with checksum & public key compression)' % keyType
       else:
          raise BadInputError, 'Unrecognized key data'
 
@@ -1375,6 +1383,8 @@ class PyBtcAddress(object):
       
       Parent160   (20 bytes) :  Parent node address (hash160)
 
+      Fingerprint ( 4 bytes) :  Fingerprint of parent key (for sipa wallet)
+
       ChildID     (32 bytes) :  8 byte unix time + 4 byte block num
 
       PrivKey     (32 bytes) :  Private key data (may be encrypted)
@@ -1402,8 +1412,6 @@ class PyBtcAddress(object):
       self.useEncryption         = False
       self.isInitialized         = False
       self.walletByteLoc         = -1
-      self.indexList             = []
-      self.addressType           = ADDRESSTYPE.Unknown
 
       # We will allow one-level generation of keys from a parent.  Beyond that,
       # it is difficult to encode arbitrarily-deep chain information efficiently
@@ -1598,7 +1606,7 @@ class PyBtcAddress(object):
 
    #############################################################################
    def getExtendedKey(self):
-      if self.hasPrivKey() 
+      if self.hasPrivKey():
          if self.hasPlainPriv():
             return ExtendedKey( SecureBinaryData(self.binPrivKey32_Plain),
                                 self.SecureBinaryData(binPubKey33or65),
@@ -1832,7 +1840,7 @@ class PyBtcAddress(object):
          self.needToDerivePrivKey = False
 
          # Make sure we have an encrypted version, so we can lock easily, later
-         self.binPrivKey32_Encr = CryptoAES().EncryptCFB( \ 
+         self.binPrivKey32_Encr = CryptoAES().EncryptCFB( \
                                             self.binPrivKey32_Encr, \
                                             decryptKey, \
                                             self.getIV())
@@ -2027,51 +2035,46 @@ class PyBtcAddress(object):
       if privAvail==PRIV_KEY_AVAIL.NextUnlock:
          raise KeyDataError, 'Cannot allow multi-level priv key generation '
                               
-      newAddr = PyBtcAddress()
-
       wasLocked  = False
-      if privAvail==PRIV_KEY_AVAIL.Encrypted and self.verifyEncryptionKey(decryptKey)
+      if privAvail==PRIV_KEY_AVAIL.Encrypted and self.verifyEncryptionKey(decryptKey):
          self.unlock(decryptKey)
          privAvail = PRIV_KEY_AVAIL.Plain
          wasLocked = True
 
 
-      # We should be unlocked now if we were before, or ha
+      # We should have an unencrypted private key, if we're supposed to have one
+      childAddr = PyBtcAddress()
+      extChild  = HDWalletCrypto().ChildKeyDeriv(self.getExtendedKey(), childID)
       if privAvail==PRIV_KEY_AVAIL.Plain:
          # We are extending a chain using private key data
-         extParent = self.getExtendedKey()
-         extChild = HDWalletCrypto().ChildKeyDeriv(extParent, childID)
-
-         newAddr.binPrivKey32_Plain  = extChild.getPriv()
-         newAddr.binPubKey33or65     = extChild.getPub()
-         newAddr.binChaincode        = extChild.getChain()
-         newAddr.needToDerivePrivKey = False
+         childAddr.binPrivKey32_Plain  = extChild.getPriv()
+         childAddr.binPubKey33or65     = extChild.getPub()
+         childAddr.binChaincode        = extChild.getChain()
+         childAddr.needToDerivePrivKey = False
       else:
-         extParent = self.getExtendedKey()
-         extChild = HDWalletCrypto().ChildKeyDeriv(extParent, childID)
-
-         newAddr.binPrivKey32_Plain  = SecureBinaryData(0)
-         newAddr.binPubKey33or65     = extChild.getPub()
-         newAddr.binChaincode        = extChild.getChain()
-         newAddr.needToDerivePrivKey = False
+         childAddr.binPrivKey32_Plain  = SecureBinaryData(0)
+         childAddr.binPubKey33or65     = extChild.getPub()
+         childAddr.binChaincode        = extChild.getChain()
+         childAddr.needToDerivePrivKey = False
 
          if privAvail==PRIV_KEY_AVAIL.Encrypted:
-            newAddr.binPrivKey32_Encr = self.binPrivKey32_Encr
-            newAddr.binChaincode = self.binChaincode
-            newAddr.needToDerivePrivKey = True
+            childAddr.binPrivKey32_Encr = self.binPrivKey32_Encr
+            childAddr.binChaincode      = self.binChaincode
+            childAddr.needToDerivePrivKey = True
    
-      newAddr.binAddr160      = self.binPubKey33or65
-      newAddr.useEncryption   = self.useEncryption
-      newAddr.isInitialized   = True
-      newAddr.childIdentifier = childID
+      childAddr.parentFingerprint  = extChild.getParentFingerprint()
+      childAddr.binAddr160         = self.binPubKey33or65
+      childAddr.useEncryption      = self.useEncryption
+      childAddr.isInitialized      = True
+      childAddr.childIdentifier    = childID
 
       # We can't get here without a decryptKey (I think)
-      if newAddr.useEncryption:
-         newAddr.lock(decryptKey)
+      if childAddr.useEncryption:
+         childAddr.lock(decryptKey)
          if not wasLocked:
-            newAddr.unlock(decryptKey)
+            childAddr.unlock(decryptKey)
             self.unlock(decryptKey)
-      return newAddr
+      return childAddr
 
 
 
@@ -2176,8 +2179,8 @@ class PyBtcAddress(object):
       self.__init__()
 
       # Need to replace all-zero fields with empty strings
-      raw = lambda x: return '' if x=='\x00'*len(x) else x
-      sec = lambda x: return SecureBinaryData(raw(x))
+      raw = lambda x: '' if x=='\x00'*len(x) else x
+      sec = lambda x: SecureBinaryData(raw(x))
 
       self.binAddr160         = raw(serializedData.get(BINARY_CHUNK, 20))
       self.versionInt         =     serializedData.get(UINT32)
@@ -2203,9 +2206,9 @@ class PyBtcAddress(object):
       self.childIdentifier   =     raw(serializedData.get(BINARY_CHUNK, 32))
 
       if self.useEncryption or self.needToDerivePrivKey:
-         self.binPrivKey32_Encr  = sec(serializedData.get(BINARY_CHUNK, 32)
+         self.binPrivKey32_Encr  = sec(serializedData.get(BINARY_CHUNK, 32))
       else:
-         self.binPrivKey32_Plain = sec(serializedData.get(BINARY_CHUNK, 32)
+         self.binPrivKey32_Plain = sec(serializedData.get(BINARY_CHUNK, 32))
 
       rawPublicKey               =     serializedData.get(BINARY_CHUNK, 65)
 
@@ -2250,32 +2253,47 @@ class PyBtcAddress(object):
    #############################################################################
    def createFromPrivateKey(self, privKey, pubKey=None, skipCheck=False):
       """
-      Creates address from a user-supplied random INTEGER.
-      This method DOES perform elliptic-curve operations
+      Simple method to convert private key data to an address object.
+      Use 32-bytes for uncompressed, 33 for compressed
       """
-      if isinstance(privKey, str) and len(privKey)==32:
-         self.binPrivKey32_Plain = SecureBinaryData(privKey)
+      self.__init__()
+
+      isCompressed = False
+      if isinstance(privKey, str):
+         isCompressed = (len(privKey)==33)
+         self.binPrivKey32_Plain = SecureBinaryData(parsePrivateKeyData(privKey)[0])
       elif isinstance(privKey, int) or isinstance(privKey, long):
          binPriv = int_to_binary(privKey, widthBytes=32, endOut=BIGENDIAN)
          self.binPrivKey32_Plain = SecureBinaryData(binPriv)
+         isCompressed = False
       else:
          raise KeyDataError, 'Unknown private key format'
 
       if pubKey==None:
-         self.binPubKey33or65 = CryptoECDSA().ComputePublicKey(self.binPrivKey32_Plain)
+         # Need to compute public key because it wasn't provided
+         self.binPubKey33or65 = CryptoECDSA().ComputePublicKey( \
+                                                      self.binPrivKey32_Plain,\
+                                                      isCompressed)
       else:
-         self.binPubKey33or65 = SecureBinaryData(pubKey)
+         # Make sure supplied public key is compr/uncompr properly, verify
+         if isCompressed:
+            self.binPubKey33or65 = CryptoECDSA().CompressPoint( \
+                                                SecureBinaryData(pubKey))
+         else:
+            self.binPubKey33or65 = CryptoECDSA().UncompressPoint( \
+                                                SecureBinaryData(pubKey))
 
-      if not skipCheck:
-         assert(CryptoECDSA().CheckPubPrivKeyMatch( \
+         if not skipCheck:
+            assert(CryptoECDSA().CheckPubPrivKeyMatch( \
                                              self.binPrivKey32_Plain, \
                                              self.binPubKey33or65))
 
       self.binAddr160 = self.binPubKey33or65.getHash160()
-
       self.isInitialized = True
       return self
 
+
+   #############################################################################
    def createFromPublicKey(self, pubkey):
       """
       Creates address from a user-supplied ECDSA public key.
@@ -2294,7 +2312,7 @@ class PyBtcAddress(object):
          self.binPubKey33or65 = SecureBinaryData('\x04' + binXBE + binYBE)
          if not CryptoECDSA().VerifyPublicKeyValid(self.binPubKey33or65):
             raise KeyDataError, 'Supplied public key is not on secp256k1 curve'
-      elif isinstance(pubkey, str) and len(pubkey)==65:
+      elif isinstance(pubkey, str) and len(pubkey) in (33,65):
          self.binPubKey33or65 = SecureBinaryData(pubkey)
          if not CryptoECDSA().VerifyPublicKeyValid(self.binPubKey33or65):
             raise KeyDataError, 'Supplied public key is not on secp256k1 curve'
@@ -2309,37 +2327,6 @@ class PyBtcAddress(object):
       return self
 
 
-   def createFromPublicKeyHash160(self, pubkeyHash160, netbyte=ADDRBYTE):
-      """
-      Creates an address from just the 20-byte binary hash of a public key.
-
-      In binary form without a chksum, there is no protection against byte
-      errors, since there's no way to distinguish an invalid address from
-      a valid one (they both look like random data).
-
-      If you are creating an address using 20 bytes you obtained in an
-      unreliable manner (such as manually typing them in), you should
-      double-check the input before sending money using the address created
-      here -- the tx will appear valid and be accepted by the network,
-      but will be permanently tied up in the network
-      """
-      self.__init__()
-      self.binAddr160 = pubkeyHash160
-      self.isInitialized = True
-      return self
-
-   def createFromAddrStr(self, addrStr):
-      """
-      Creates an address from a Base58 address string.  Since the address
-      string includes a checksum, this method will fail if there was any
-      errors entering/copying the address
-      """
-      self.__init__()
-      self.addrStr = addrStr
-      if not self.checkAddressValid():
-         raise BadAddressError, 'Invalid address string: '+addrStr
-      self.isInitialized = True
-      return self
 
    def calculateAddrStr(self, netbyte=ADDRBYTE):
       """
@@ -2352,9 +2339,6 @@ class PyBtcAddress(object):
       return  binary_to_base58(netbyte + keyHash + chksum)
 
 
-
-   def checkAddressValid(self):
-      return checkAddrStrValid(self.addrStr);
 
 
    def pprint(self, withPrivKey=True, indent=''):
