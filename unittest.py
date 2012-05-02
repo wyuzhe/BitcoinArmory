@@ -16,9 +16,9 @@ BE = BIGENDIAN
 Test_BasicUtils       = False
 Test_PyBlockUtils     = False
 Test_CppBlockUtils    = False
-Test_SimpleAddress    = False
+Test_SimpleAddress    = True
 Test_MultiSigTx       = False
-Test_TxSimpleCreate   = False
+Test_TxSimpleCreate   = True
 Test_EncryptedAddress = False
 Test_EncryptedWallet  = False
 Test_TxDistProposals  = False
@@ -32,9 +32,9 @@ Test_WalletMigrate    = False
 Test_AddressBooks     = False
 Test_URIParse         = False
 
-Test_TxSimpleCreate_1_35   = True
-Test_EncryptedAddress_1_35 = True
-Test_EncryptedWallet_1_35  = True
+Test_TxSimpleCreate_1_35   = False
+Test_EncryptedAddress_1_35 = False
+Test_EncryptedWallet_1_35  = False
 Test_TxDistProposals_1_35  = False
 
 '''
@@ -397,10 +397,10 @@ if Test_SimpleAddress:
 
    ################################################################################
    # Convert Data:  Priv/Pub/Hash160 + Compressed/Uncompressed
-   parsePrivateKeyData()
-   convertKeyDataToAddress()
-   CryptoECDSA().CompressPoint()
-   CryptoECDSA().UncompressPoint()
+   #parsePrivateKeyData()
+   #convertKeyDataToAddress()
+   #CryptoECDSA().CompressPoint()
+   #CryptoECDSA().UncompressPoint()
 
    miniKey  = 'S4b3N3oGqDqR5jNuxEvDwf'
    miniPriv = hex_to_binary('0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d')
@@ -408,25 +408,31 @@ if Test_SimpleAddress:
 
    privU = '\xee'*32
    privC = '\xee'*32 + '\x01'
-   pubU  = CryptoECDSA().ComputePublicKey( SecureBinaryData(privU) )
+   pubU  = CryptoECDSA().ComputePublicKey( SecureBinaryData(privU), False )
    pubC  = CryptoECDSA().CompressPoint( pubU )
    addrU = pubU.getHash160()
-   addrC = pubU.getHash160()
+   addrC = pubC.getHash160()
+
+   print 'Test Addresses:'
+   print '     Uncompressed: ', binary_to_hex(addrU)
+   print '     Compressed:   ', binary_to_hex(addrC)
    
-   convertKeyDataToAddress(privKey=privU)
-   convertKeyDataToAddress(pubKey=pubU)
-   convertKeyDataToAddress(privKey=privC)
-   convertKeyDataToAddress(pubKey=pubC)
+   printpassorfail(addrU==convertKeyDataToAddress(privKey=privU))
+   printpassorfail(addrU==convertKeyDataToAddress(pubKey=pubU))
+   printpassorfail(addrC==convertKeyDataToAddress(privKey=privC))
+   printpassorfail(addrC==convertKeyDataToAddress(pubKey=pubC))
 
-   convertKeyDataToAddress(privKey=privU, forceCompr=True)
-   convertKeyDataToAddress(pubKey =pubU,  forceCompr=True)
-   convertKeyDataToAddress(privKey=privC, forceCompr=True)
-   convertKeyDataToAddress(pubKey =pubC,  forceCompr=True)
+   printpassorfail(addrC==convertKeyDataToAddress(privKey=privU, shouldBeCompr=True))
+   printpassorfail(addrC==convertKeyDataToAddress(pubKey =pubU,  shouldBeCompr=True))
+   printpassorfail(addrC==convertKeyDataToAddress(privKey=privC, shouldBeCompr=True))
+   printpassorfail(addrC==convertKeyDataToAddress(pubKey =pubC,  shouldBeCompr=True))
 
-   convertKeyDataToAddress(privKey=privU, forceUncompr=True)
-   convertKeyDataToAddress(pubKey =pubU,  forceUncompr=True)
-   convertKeyDataToAddress(privKey=privC, forceUncompr=True)
-   convertKeyDataToAddress(pubKey =pubC,  forceUncompr=True)
+   printpassorfail(addrU==convertKeyDataToAddress(privKey=privU, shouldBeCompr=False))
+   printpassorfail(addrU==convertKeyDataToAddress(pubKey =pubU,  shouldBeCompr=False))
+   printpassorfail(addrU==convertKeyDataToAddress(privKey=privC, shouldBeCompr=False))
+   printpassorfail(addrU==convertKeyDataToAddress(pubKey =pubC,  shouldBeCompr=False))
+
+   print '\n'
 
 
 ################################################################################
@@ -649,6 +655,7 @@ if Test_TxSimpleCreate:
    psp.setTxObjects(tx1, tx2, 0)
    verifResult = psp.verifyTransactionValid()
    printpassorfail( verifResult)
+   print '\n'
 
 
 
@@ -797,7 +804,7 @@ if Test_EncryptedAddress:
    addr20_1      = testAddr.getAddr160()
    encryptedKey1 = testAddr.binPrivKey32_Encr
    encryptionIV1 = testAddr.binInitVect16
-   plainPubKey1  = testAddr.binPublicKey65
+   plainPubKey1  = testAddr.binPubKey33or65
 
    print '\n  OP(Key1 --> Unencrypted)'
    testAddr.changeEncryptionKey(fakeKdfOutput1, None)
@@ -813,7 +820,7 @@ if Test_EncryptedAddress:
    addr20_2      = testAddr.getAddr160()
    encryptedKey2 = testAddr.binPrivKey32_Encr
    encryptionIV2 = testAddr.binInitVect16
-   plainPubKey2  = testAddr.binPublicKey65
+   plainPubKey2  = testAddr.binPubKey33or65
 
    print '\n  OP(Key2 --> Key1)'
    testAddr.changeEncryptionKey(fakeKdfOutput2, fakeKdfOutput1)
@@ -865,7 +872,7 @@ if Test_EncryptedAddress:
    chaincode = SecureBinaryData(hex_to_binary('ee'*32))
    addr0 = PyBtcAddress().createFromPlainKeyData(privKey, addr20)
    addr0.markAsRootAddr(chaincode)
-   pub0  = addr0.binPublicKey65
+   pub0  = addr0.binPubKey33or65
    if debugPrint: addr0.pprint(indent=' '*3)
 
    print '\nTest serializing address-chain-root',
@@ -885,12 +892,12 @@ if Test_EncryptedAddress:
 
    print '\n  OP(addr[1] --> addr[2])'
    addr2 = addr1.extendAddressChain()
-   pub2 = addr2.binPublicKey65.copy()
+   pub2 = addr2.binPubKey33or65.copy()
    priv2 = addr2.binPrivKey32_Plain.copy()
    if debugPrint: addr2.pprint(indent=' '*3)
 
    print '\nAddr1.privKey == Addr1a.privKey:',
-   printpassorfail(addr1.binPublicKey65 == addr1a.binPublicKey65)
+   printpassorfail(addr1.binPubKey33or65 == addr1a.binPubKey33or65)
 
    print '\nTest serializing priv-key-chained',
    serializedAddr = addr2.serialize()
@@ -917,7 +924,7 @@ if Test_EncryptedAddress:
 
    print '\n  OP(addr[1] --> addr[2])'
    addr2 = addr1.extendAddressChain()
-   pub2a = addr2.binPublicKey65.copy()
+   pub2a = addr2.binPubKey33or65.copy()
    if debugPrint: addr2.pprint(indent=' '*3)
 
    print '\nAddr2.PublicKey == Addr2a.PublicKey:',
@@ -983,7 +990,7 @@ if Test_EncryptedAddress:
 
    print '\n  OP(addr[1] locked --> addr[2] locked)'
    addr2 = addr1.extendAddressChain(newIV=theIV)
-   pub2b = addr2.binPublicKey65.copy()
+   pub2b = addr2.binPubKey33or65.copy()
    if debugPrint: addr2.pprint(indent=' '*3)
 
    print '\nAddr2.Pub == Addr2b.pub:',

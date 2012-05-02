@@ -1063,9 +1063,9 @@ def convertKeyDataToAddress(privKey=None, pubKey=None, shouldBeCompr=None):
    If it's not set, priv key length is used
    """
    privCompr = False
-   if privKey==None and pubKey==None:
+   if not privKey and not pubKey:
       raise BadAddressError, 'No key data supplied for conversion'
-   elif privKey!=None:
+   elif privKey:
       if not isinstance(privKey, str):
          privKey = privKey.toBinStr()
 
@@ -1316,7 +1316,7 @@ def extendKey(parent, *args):
                                                   parent.chaincode,
                                                   parent.indexList)
       else:
-         parent = ExtendedKey().CreateFromPublic(parent.binPublicKey65, \
+         parent = ExtendedKey().CreateFromPublic(parent.binPubKey33or65, \
                                                  parent.chaincode,
                                                  parent.indexList)
 
@@ -2863,7 +2863,7 @@ def TxInScriptExtractKeyAddr(txinObj):
    if scrType == TXIN_SCRIPT_STANDARD:
       pubKeyBin = txinObj.binScript[-65:]
       newAddr = PyBtcAddress().createFromPublicKey(pubKeyBin)
-      return (newAddr.calculateAddrStr(), newAddr.binPublicKey65.toBinStr()) # LITTLE_ENDIAN
+      return (newAddr.calculateAddrStr(), newAddr.binPubKey33or65.toBinStr()) # LITTLE_ENDIAN
    elif scrType == TXIN_SCRIPT_COINBASE:
       return ('[COINBASE-NO-ADDR: %s]'%binary_to_hex(txinObj.binScript), '[COINBASE-NO-PUBKEY]')
       #return ('[COINBASE-NO-ADDR]', '[COINBASE-NO-PUBKEY]')
@@ -4109,7 +4109,7 @@ def PyCreateAndSignTx(srcTxOuts, dstAddrsVals):
       dstAddr     = dstAddrsVals[i][0]
       if(coinbaseTx):
          txout.binScript = ''.join([  '\x41',                      \
-                                      dstAddr.binPublicKey65.toBinStr(),  \
+                                      dstAddr.binPubKey33or65.toBinStr(),  \
                                       getOpCode('OP_CHECKSIG'   )])
       else:
          txout.binScript = ''.join([  getOpCode('OP_DUP'        ), \
@@ -4176,7 +4176,7 @@ def PyCreateAndSignTx(srcTxOuts, dstAddrsVals):
             sigLenInBinary = int_to_binary(len(signature) + 1)
             newTx.inputs[i].binScript = sigLenInBinary + signature + hashCode1
          else:
-            pubkey = srcAddr.binPublicKey65.toBinStr()
+            pubkey = srcAddr.binPubKey33or65.toBinStr()
             sigLenInBinary    = int_to_binary(len(signature) + 1)
             pubkeyLenInBinary = int_to_binary(len(pubkey)   )
             newTx.inputs[i].binScript = sigLenInBinary    + signature + hashCode1 + \
@@ -7618,7 +7618,7 @@ class PyBtcWallet(object):
 
          if not addrObj.hasPubKey():
             # Make sure the public key is available for this address
-            addrObj.binPublicKey65 = CryptoECDSA().ComputePublicKey(addrObj.binPrivKey32_Plain)
+            addrObj.binPubKey33or65 = CryptoECDSA().ComputePublicKey(addrObj.binPrivKey32_Plain)
 
          # Copy the script, blank out out all other scripts (assume hashcode==1)
          txCopy = PyTx().unserialize(txdp.pytxObj.serialize())
@@ -7640,7 +7640,7 @@ class PyBtcWallet(object):
             txdp.signatures[idx][0] = sigLenInBinary + signature
          elif txdp.scriptTypes[idx]==TXOUT_SCRIPT_STANDARD:
             # Gotta include the public key, too, for standard TxOuts
-            pubkey = addrObj.binPublicKey65.toBinStr()
+            pubkey = addrObj.binPubKey33or65.toBinStr()
             sigLenInBinary    = int_to_binary(len(signature))
             pubkeyLenInBinary = int_to_binary(len(pubkey)   )
             txdp.signatures[idx][0] = sigLenInBinary    + signature + \
