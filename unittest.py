@@ -16,10 +16,10 @@ BE = BIGENDIAN
 Test_BasicUtils       = False
 Test_PyBlockUtils     = False
 Test_CppBlockUtils    = False
-Test_SimpleAddress    = True
+Test_SimpleAddress    = False
 Test_MultiSigTx       = False
-Test_TxSimpleCreate   = True
-Test_EncryptedAddress = False
+Test_TxSimpleCreate   = False
+Test_EncryptedAddress = True
 Test_EncryptedWallet  = False
 Test_TxDistProposals  = False
 Test_SelectCoins      = False
@@ -710,9 +710,9 @@ if Test_MultiSigTx:
 
    for scr in scripts:
       mstype, addrList, pubList = getTxOutMultiSigInfo(scr)
-      print '\nNum addresses:   ', len(addrList), '\n   ',
+      print '\nNum addresses:   ', len(addrList), '\n',
       for a in addrList:
-         print  PyBtcAddress().createFromPublicKeyHash160(a).getAddrStr(),
+         print  '\t', hash160_to_addrStr(a)
 
 
 
@@ -756,23 +756,22 @@ if Test_EncryptedAddress:
    print '\n\nTesting PyBtcAddress with plaintext private key (try not to crash)'
    testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20)
    testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, chksum=privChk)
-   testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, publicKey65=pubKey)
-   testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, publicKey65=pubKey, skipCheck=True)
-   testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, skipPubCompute=True)
+   testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, pubKey33or65=pubKey)
+   testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, pubKey33or65=pubKey, skipCheck=True)
+   testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, skipCheck=True)
    if debugPrint: testAddr.pprint(indent=' '*3)
 
 
-   testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, publicKey65=pubKey)
+   testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, pubKey33or65=pubKey)
    print '\nTest serializing unencrypted wallet',
    serializedAddr = testAddr.serialize()
    retestAddr = PyBtcAddress().unserialize(serializedAddr)
    serializedRetest = retestAddr.serialize()
    printpassorfail(serializedAddr == serializedRetest)
 
-   theIV = SecureBinaryData(hex_to_binary('77'*16))
    # Now try locking and unlock addresses
    print '\nTesting address locking'
-   testAddr.enableKeyEncryption(theIV)
+   testAddr.changeEncryptionKey(None, fakeKdfOutput1)
    testAddr.lock(fakeKdfOutput1)
    if debugPrint: testAddr.pprint(indent=' '*3)
 
@@ -795,32 +794,27 @@ if Test_EncryptedAddress:
    #############################################################################
    print '\n\nTest changing passphrases'
    print '  OP(None --> Key1)'
-   testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, publicKey65=pubKey)
-   testAddr.enableKeyEncryption(theIV)
+   testAddr = PyBtcAddress().createFromPlainKeyData(privKey, addr20, pubKey33or65=pubKey)
    testAddr.changeEncryptionKey(None, fakeKdfOutput1)
    if debugPrint: testAddr.pprint(indent=' '*3)
 
    # Save off this data for a later test
    addr20_1      = testAddr.getAddr160()
-   encryptedKey1 = testAddr.binPrivKey32_Encr
-   encryptionIV1 = testAddr.binInitVect16
-   plainPubKey1  = testAddr.binPubKey33or65
+   encryptedKey1 = testAddr.binPrivKey32_Encr.copy()
+   plainPubKey1  = testAddr.binPubKey33or65.copy()
 
    print '\n  OP(Key1 --> Unencrypted)'
    testAddr.changeEncryptionKey(fakeKdfOutput1, None)
    if debugPrint: testAddr.pprint(indent=' '*3)
       
    print '\n  OP(Unencrypted --> Key2)'
-   if not testAddr.isKeyEncryptionEnabled():
-      testAddr.enableKeyEncryption(theIV)
    testAddr.changeEncryptionKey(None, fakeKdfOutput2)
    if debugPrint: testAddr.pprint(indent=' '*3)
 
    # Save off this data for a later test
    addr20_2      = testAddr.getAddr160()
-   encryptedKey2 = testAddr.binPrivKey32_Encr
-   encryptionIV2 = testAddr.binInitVect16
-   plainPubKey2  = testAddr.binPubKey33or65
+   encryptedKey2 = testAddr.binPrivKey32_Encr.copy()
+   plainPubKey2  = testAddr.binPubKey33or65.copy()
 
    print '\n  OP(Key2 --> Key1)'
    testAddr.changeEncryptionKey(fakeKdfOutput2, fakeKdfOutput1)
@@ -836,15 +830,16 @@ if Test_EncryptedAddress:
    if debugPrint: testAddr.pprint(indent=' '*3)
    
    print '\nEncryption Key Tests: '
-   printpassorfail(testAddr.serializePlainPrivateKey() == privKey.toBinStr())
+   printpassorfail(testAddr.binPrivKey32_Plain.toBinStr() == privKey.toBinStr())
                     
 
    #############################################################################
    # TODO:  Gotta test pre-encrypted key handling
    print '\n\nTest loading pre-encrypted key data'
-   testAddr = PyBtcAddress().createFromEncryptedKeyData(addr20_1, \
+   testAddr = PyBtcAddress().createFromEncryptedKeyData(plainPubKey1, \
                                                         encryptedKey1, \
-                                                        encryptionIV1)
+                                                        addr20_1)
+                                                        
    if debugPrint: testAddr.pprint(indent=' '*3)
 
    print '\n  OP(EncrAddr --> Unlock1)'
@@ -871,8 +866,7 @@ if Test_EncryptedAddress:
    print 'Starting with plain key data'
    chaincode = SecureBinaryData(hex_to_binary('ee'*32))
    addr0 = PyBtcAddress().createFromPlainKeyData(privKey, addr20)
-   addr0.markAsRootAddr(chaincode)
-   pub0  = addr0.binPubKey33or65
+   pub0  = addr0.binPubKey33or65.copy()
    if debugPrint: addr0.pprint(indent=' '*3)
 
    print '\nTest serializing address-chain-root',

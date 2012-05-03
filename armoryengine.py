@@ -423,6 +423,12 @@ def prettyHex(theStr, indent='', withAddr=True, major=8, minor=8):
    printing it to console.  This is useful for redirecting output to
    files, or doing further modifications to the data before display
    """
+   
+   hexChars = '0123456789abcdef'
+   if sum( [(1 if c not in hexChars else 0) for c in theStr] )>0:
+      theStr = binary_to_hex(theStr)
+   
+
    outStr = ''
    sz = len(theStr)
    nchunk = int((sz-1)/minor) + 1;
@@ -1401,13 +1407,13 @@ class PyBtcAddress(object):
       because that is what is required by the C++ code.  See EncryptionUtils.h
       to see that available methods.
       """
-      self.versionInt            = PYBTCWALLET_VERSION # created-by wallet ver
-      self.binAddr160            = SecureBinaryData()  # Compressed or not
+      self.versionInt            = getVersionInt(PYBTCWALLET_VERSION) # created-by wallet ver
+      self.binAddr160            = ''                                     
       self.binPubKey33or65       = SecureBinaryData()  # Compressed or not
       self.binPrivKey32_Encr     = SecureBinaryData()  # BIG-ENDIAN
       self.binPrivKey32_Plain    = SecureBinaryData()
       self.binChaincode          = SecureBinaryData()
-      self.childIdentifier       = -1   # may allow strings in the future
+      self.childIdentifier       = UINT32_MAX   # may allow strings in the future
       self.isLocked              = False
       self.useEncryption         = False
       self.isInitialized         = False
@@ -1418,10 +1424,10 @@ class PyBtcAddress(object):
       # In the PyBtcAddress serialization.  This is acceptable for most use 
       # cases though:  we can generate new addresses from an existing chain,
       # but we can't create new chains without unlocking first
-      self.parentAddr160         = None
-      self.parentFingerprint     = None
-      self.needToDerivePrivKey   = None
-      self.needExternalKeyData   = None  # not really used
+      self.parentAddr160         = ''
+      self.parentFingerprint     = ''
+      self.needToDerivePrivKey   = False
+      self.needExternalKeyData   = False  # not really used
 
       # Information to be used by C++ to know where to search for transactions
       # in the blockchain, or at least track when it was created
@@ -1665,6 +1671,36 @@ class PyBtcAddress(object):
 
 
 
+   #############################################################################
+   def createFromEncryptedKeyData(self, pubKey, encrPrivKey32or33, addr160=None,\
+                                                                chkSum=None):
+      """
+      This method now requires the public key, so that it can be determined 
+      whether the key is encrypted or not, and guarantee that the PyBtcAddress
+      object has a public key (which is assumed to be present for all methods)
+      """
+      if chkSum:
+         assert(verifyChecksum(encrPrivKey32or33, chkSum))
+
+      self.__init__()
+      doCompr = (encrPrivKey32or33.getSize()==33 or pubKey.getSize()==33)
+
+      if addr160:
+         self.binAddr160      = addr160
+      self.binPrivKey32_Encr  = encrPrivKey32or33.copy()
+      self.binPrivKey32_Encr.resize(32)
+      self.binPrivKey32_Plain = SecureBinaryData(0)
+
+      if pubKey:
+         self.binPubKey33or65 = pubKey.copy()
+
+      self.useEncryption = True
+      self.isLocked      = True
+      self.isInitialized = True
+
+      return self
+
+
 
    #############################################################################
    def createFromPlainKeyData(self, plainPrivKey, addr160=None, willBeEncr=False, \
@@ -1692,21 +1728,25 @@ class PyBtcAddress(object):
       # From here on, expectCompressed is what we expect, priv is 32 bytes
 
       # Compute public key if we don't have it, or check it if we do and are supposed to
-      if pubKey33or65==None:
+      if not pubKey33or65:
          pubKey33or65 = CryptoECDSA().ComputePublicKey(plainPrivKey, expectCompressed)
       elif not skipCheck:
          pubKey33or65 = SecureBinaryData(pubKey33or65)
          if not CryptoECDSA().CheckPubPrivKeyMatch(plainPrivKey, pubKey33or65):
             raise KeyDataError, 'Supplied pub and priv key do not match!'
          
+      if not addr160:
+         addr160 = pubKey33or65.getHash160()
+      elif not addr160==pubKey33or65.getHash160():
+         raise KeyDataError, 'Supplied hash160 and public key do not match!'
+         
 
       self.__init__()
       self.binAddr160          = addr160
-      self.binPrivKey32_Plain  = plainPrivKey
+      self.binPrivKey32_Plain  = plainPrivKey.copy()
       self.binPubKey33or65     = SecureBinaryData(pubKey33or65)
       self.isLocked            = False
       self.useEncryption       = willBeEncr
-      self.addressType         = ADDRESSTYPE.Unknown
 
       return self
 
@@ -1744,7 +1784,7 @@ class PyBtcAddress(object):
          return
         
       # If we're here, the key needs to be [re-]encrypted
-      if decryptKey==None:
+      if not decryptKey:
          # Can't encrypt the addr because we don't have encryption key
          raise WalletLockError, ("\n\tWant to destroy plaintext key, but no"
                                  "\n\tencrypted key data is available, and no"
@@ -1815,7 +1855,7 @@ class PyBtcAddress(object):
          # Key data here is actually the PARENT's key data, need to compute self
          if not self.hasEncrPriv():
             raise WalletLockError, '***ERROR:  Parent key needed to unlock'
-         if self.childIdentifier==-1:
+         if self.childIdentifier==UINT32_MAX:
             raise WalletLockError, ('***ERROR:  Need to derive from parent '
                                                'but no child ID is available.')
 
@@ -1836,7 +1876,7 @@ class PyBtcAddress(object):
             if a160 != self.binAddr160:
                raise KeyDataError, "Stored public key does not match priv key!"
             
-         self.binPrivKey32_Plain = thisKey.getPriv()
+         self.binPrivKey32_Plain = thisKey.getPriv().copy()
          self.needToDerivePrivKey = False
 
          # Make sure we have an encrypted version, so we can lock easily, later
@@ -1849,14 +1889,19 @@ class PyBtcAddress(object):
 
          return
 
+
    #############################################################################
    def changeEncryptionKey(self, secureOldKey, secureNewKey):
       """
       In wallet 2.0:  the encryption on the PyBtcAddress objects never changes.
                       They are always encrypted with a master encryption key,
-                      which is encrypted using the KDF.  If we want to change 
+                      which is decrypted using the KDF.  If we want to change 
                       our passphrase, we change the encryption on that master
-                      key.
+                      key.  However, we may want to disable or re-enable the 
+                      encryption on the address.
+
+                      The point is, this method isn't so useful anymore in 
+                      the new wallet version...
       """
       if not self.hasPrivKey():
          raise KeyDataError, 'No private key available to re-encrypt'
@@ -2007,14 +2052,6 @@ class PyBtcAddress(object):
       return self
 
 
-   #############################################################################
-   def markAsRootAddr(self, binChaincode):
-      if not binChaincode.getSize()==32:
-         raise KeyDataError, 'Chaincode must be 32 bytes'
-      else:
-         self.chainIndex = -1
-         self.binChaincode  = binChaincode
-
 
    #############################################################################
    def spawnChild(self, childID, decryptKey=None):
@@ -2047,23 +2084,23 @@ class PyBtcAddress(object):
       extChild  = HDWalletCrypto().ChildKeyDeriv(self.getExtendedKey(), childID)
       if privAvail==PRIV_KEY_AVAIL.Plain:
          # We are extending a chain using private key data
-         childAddr.binPrivKey32_Plain  = extChild.getPriv()
-         childAddr.binPubKey33or65     = extChild.getPub()
-         childAddr.binChaincode        = extChild.getChain()
+         childAddr.binPrivKey32_Plain  = extChild.getPriv().copy()
+         childAddr.binPubKey33or65     = extChild.getPub().copy()
+         childAddr.binChaincode        = extChild.getChain().copy()
          childAddr.needToDerivePrivKey = False
       else:
          childAddr.binPrivKey32_Plain  = SecureBinaryData(0)
-         childAddr.binPubKey33or65     = extChild.getPub()
-         childAddr.binChaincode        = extChild.getChain()
+         childAddr.binPubKey33or65     = extChild.getPub().copy()
+         childAddr.binChaincode        = extChild.getChain().copy()
          childAddr.needToDerivePrivKey = False
 
          if privAvail==PRIV_KEY_AVAIL.Encrypted:
-            childAddr.binPrivKey32_Encr = self.binPrivKey32_Encr
-            childAddr.binChaincode      = self.binChaincode
+            childAddr.binPrivKey32_Encr = self.binPrivKey32_Encr.copy()
+            childAddr.binChaincode      = self.binChaincode.copy()
             childAddr.needToDerivePrivKey = True
    
-      childAddr.parentFingerprint  = extChild.getParentFingerprint()
-      childAddr.binAddr160         = self.binPubKey33or65
+      childAddr.parentFingerprint  = extChild.getParentFingerprint().copy()
+      childAddr.binAddr160         = self.binPubKey33or65.getHash160()
       childAddr.useEncryption      = self.useEncryption
       childAddr.isInitialized      = True
       childAddr.childIdentifier    = childID
@@ -2147,7 +2184,7 @@ class PyBtcAddress(object):
       # Information about the parent key, if available.  Should be all zeros
       # if this is an imported address or root key
       stream.put(BINARY_CHUNK,   raw(self.parentAddr160),            width=20)
-      stream.put(BINARY_CHUNK,   raw(self.childIdentifier),          width=20)
+      stream.put(UINT32,         self.childIdentifier)
 
       if serializeWithEncryption or self.needToDerivePrivKey:
          stream.put(BINARY_CHUNK,   raw(self.binPrivKey32_Encr),     width=32)
@@ -2203,7 +2240,7 @@ class PyBtcAddress(object):
       self.whenLastSeen[1]   =     serializedData.get(UINT32)
 
       self.parentAddr160     =     raw(serializedData.get(BINARY_CHUNK, 20))
-      self.childIdentifier   =     raw(serializedData.get(BINARY_CHUNK, 32))
+      self.childIdentifier   =     serializedData.get(UINT32)
 
       if self.useEncryption or self.needToDerivePrivKey:
          self.binPrivKey32_Encr  = sec(serializedData.get(BINARY_CHUNK, 32))
