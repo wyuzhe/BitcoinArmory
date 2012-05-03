@@ -1418,7 +1418,7 @@ class PyBtcAddress(object):
       self.binPrivKey32_Plain    = SecureBinaryData()
       self.binChaincode          = SecureBinaryData()
       self.childIdentifier       = UINT32_MAX   # may allow strings in the future
-      self.hdwDepth              = UINT8_MAX    # may allow strings in the future
+      self.hdwDepth              = 0
       self.isLocked              = False
       self.useEncryption         = False
       self.isInitialized         = False
@@ -1710,7 +1710,7 @@ class PyBtcAddress(object):
    #############################################################################
    def createFromPlainKeyData(self, plainPrivKey, addr160=None, willBeEncr=False, \
                                     chksum=None, pubKey33or65=None, doCompr=None, \
-                                    skipCheck=False):
+                                    skipCheck=False, chain=None):
 
       """
       If pass in a 33-byte priv, assumed compressed
@@ -1744,7 +1744,8 @@ class PyBtcAddress(object):
          addr160 = pubKey33or65.getHash160()
       elif not addr160==pubKey33or65.getHash160():
          raise KeyDataError, 'Supplied hash160 and public key do not match!'
-         
+
+
 
       self.__init__()
       self.binAddr160          = addr160
@@ -1753,10 +1754,15 @@ class PyBtcAddress(object):
       self.isLocked            = False
       self.useEncryption       = willBeEncr
 
+      if chain:
+         self.binChaincode = SecureBinaryData(chain)
+         
+
       return self
 
+
    #############################################################################
-   def createFromPublicKeyData(self, pubKey33or65, chksum=None):
+   def createFromPublicKeyData(self, pubKey33or65, chksum=None, chain=None):
 
       pubKey33or65 = SecureBinaryData(pubKey33or65)
 
@@ -1770,6 +1776,9 @@ class PyBtcAddress(object):
 
       if chksum and not verifyChecksum(self.binPubKey33or65.toBinStr(), chksum):
          raise ChecksumError, "Checksum doesn't match supplied public key!"
+
+      if chain:
+         self.binChaincode = SecureBinaryData(chain)
 
       return self
 
@@ -2111,6 +2120,7 @@ class PyBtcAddress(object):
       childAddr.useEncryption      = self.useEncryption
       childAddr.isInitialized      = True
       childAddr.childIdentifier    = childID
+      childAddr.hdwDepth           = self.hdwDepth+1
 
       # We can't get here without a decryptKey (I think)
       if childAddr.useEncryption:
@@ -2192,6 +2202,7 @@ class PyBtcAddress(object):
       # if this is an imported address or root key
       stream.put(BINARY_CHUNK,   raw(self.parentAddr160),            width=20)
       stream.put(UINT32,         self.childIdentifier)
+      stream.put(UINT8,          self.hdwDepth % 256)
 
       if serializeWithEncryption or self.needToDerivePrivKey:
          stream.put(BINARY_CHUNK,   raw(self.binPrivKey32_Encr),     width=32)
@@ -2248,6 +2259,7 @@ class PyBtcAddress(object):
 
       self.parentAddr160     =     raw(serializedData.get(BINARY_CHUNK, 20))
       self.childIdentifier   =     serializedData.get(UINT32)
+      self.hdwDepth          =     serializedData.get(UINT8)
 
       if self.useEncryption or self.needToDerivePrivKey:
          self.binPrivKey32_Encr  = sec(serializedData.get(BINARY_CHUNK, 32))

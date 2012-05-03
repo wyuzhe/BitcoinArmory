@@ -865,16 +865,17 @@ if Test_EncryptedAddress:
    print '\n\nTest ChildKeyDerive priv key generation'
    print 'Starting with plain key data'
    chaincode = SecureBinaryData(hex_to_binary('ee'*32))
-   addr0 = PyBtcAddress().createFromPlainKeyData(privKey, addr20)
-   addr0.binChaincode = chaincode.copy()
+   addr0 = PyBtcAddress().createFromPlainKeyData(privKey, addr20, chain=chaincode)
    pub0  = addr0.binPubKey33or65.copy()
    if debugPrint: addr0.pprint(indent=' '*3)
+
 
    print '\nTest serializing M'
    serializedAddr = addr0.serialize()
    retestAddr = PyBtcAddress().unserialize(serializedAddr)
    serializedRetest = retestAddr.serialize()
    printpassorfail(serializedAddr == serializedRetest)
+
 
    print '\nGenerate Child(0) of PRIVATE key'
    print '  OP(M --> M/0)'
@@ -906,8 +907,7 @@ if Test_EncryptedAddress:
    #############################################################################
    print '\n\nGenerate chained PUBLIC key address'
    print '    addr[0]'
-   addr0 = PyBtcAddress().createFromPublicKeyData(pub0)
-   addr0.binChaincode = chaincode.copy()
+   addr0 = PyBtcAddress().createFromPublicKeyData(pub0, chain=chaincode)
    if debugPrint: addr0.pprint(indent=' '*3)
 
    print '\nTest serializing M (public root)'
@@ -942,28 +942,26 @@ if Test_EncryptedAddress:
 
    #############################################################################
    print '\n\nGenerate chained keys from locked addresses'
-   addr0 = PyBtcAddress().createFromPlainKeyData( privKey, \
-                                             willBeEncr=True, IV16=theIV)
-   addr0.markAsRootAddr(chaincode)
-   print '\n  OP(addr[0] plain)'
+   addr0 = PyBtcAddress().createFromPlainKeyData( privKey, chain=chaincode)
+   print '\n  OP(M plain)'
    if debugPrint: addr0.pprint(indent=' '*3)
 
-   print '\nTest serializing unlocked addr-chain-root',
+   print '\nTest serializing unlocked M',
    serializedAddr = addr0.serialize()
    retestAddr = PyBtcAddress().unserialize(serializedAddr)
    serializedRetest = retestAddr.serialize()
    printpassorfail(serializedAddr == serializedRetest)
 
-   print '\n  OP(addr[0] locked)'
-   addr0.lock(fakeKdfOutput1)
+   print '\n  OP(Mlck [M locked])'
+   addr0.changeEncryptionKey(None, fakeKdfOutput1)
    if debugPrint: addr0.pprint(indent=' '*3)
 
-   print '\n  OP(addr[0] w/Key --> addr[1])'
-   addr1 = addr0.extendAddressChain(fakeKdfOutput1, newIV=theIV)
+   print '\n  OP(Mlck+kdf --> Mlck/0)'
+   addr1 = addr0.spawnChild(0, fakeKdfOutput1)
    if debugPrint: addr1.pprint(indent=' '*3)
 
-   print '\n  OP(addr[1] w/Key --> addr[2])'
-   addr2 = addr1.extendAddressChain(fakeKdfOutput1, newIV=theIV)
+   print '\n  OP(Mlck/0+kdf --> Mlck/0/10'
+   addr2 = addr1.spawnChild(10, fakeKdfOutput1)
    addr2.unlock(fakeKdfOutput1)
    priv2a = addr2.binPrivKey32_Plain.copy()
    addr2.lock()
@@ -982,18 +980,17 @@ if Test_EncryptedAddress:
    #############################################################################
    print '\n\nGenerate chained keys from locked addresses, no unlocking'
    addr0 = PyBtcAddress().createFromPlainKeyData( privKey, \
-                                          willBeEncr=True, IV16=theIV)
-   addr0.markAsRootAddr(chaincode)
-   print '\n  OP(addr[0] locked)'
+                                          willBeEncr=True, chain=chaincode)
+   print '\n  OP(Mlck)'
    addr0.lock(fakeKdfOutput1)
    if debugPrint: addr0.pprint(indent=' '*3)
 
-   print '\n  OP(addr[0] locked --> addr[1] locked)'
-   addr1 = addr0.extendAddressChain(newIV=theIV)
+   print '\n  OP(Mlck --> Mlck/0)'
+   addr1 = addr0.spawnChild(0)
    if debugPrint: addr1.pprint(indent=' '*3)
 
-   print '\n  OP(addr[1] locked --> addr[2] locked)'
-   addr2 = addr1.extendAddressChain(newIV=theIV)
+   print '\n  OP(Mlck/0 --> Mlck/0/10)'
+   addr2 = addr1.spawnChild(10)
    pub2b = addr2.binPubKey33or65.copy()
    if debugPrint: addr2.pprint(indent=' '*3)
 
@@ -1008,7 +1005,7 @@ if Test_EncryptedAddress:
 
    addr2.unlock(fakeKdfOutput1)
    priv2b = addr2.binPrivKey32_Plain.copy()
-   print '\n  OP(addr[2] locked --> unlocked)'
+   print '\n  OP(Mlck/0/10 locked --> unlocked)'
    if debugPrint: addr2.pprint(indent=' '*3)
 
 
