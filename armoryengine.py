@@ -361,8 +361,12 @@ def RightNowUTC():
 ################################################################################
 try:
    import CppBlockUtils as Cpp
-   from CppBlockUtils import KdfRomix, CryptoECDSA, CryptoAES, SecureBinaryData
-   from CppBlockUtils import KdfRomix_1_35, CryptoECDSA_1_35, CryptoAES_1_35, SecureBinaryData_1_35
+   from CppBlockUtils import KdfRomix
+   from CppBlockUtils import CryptoECDSA, CryptoAES
+   from CppBlockUtils import SecureBinaryData
+   from CppBlockUtils import HDWalletCrypto, ExtendedKey
+   from CppBlockUtils import KdfRomix_1_35, CryptoECDSA_1_35
+   from CppBlockUtils import CryptoAES_1_35, SecureBinaryData_1_35
 except:
    print '***ERROR:  C++ block utilities not available.'
    print '           Make sure that you have the SWIG-compiled modules'
@@ -1414,6 +1418,7 @@ class PyBtcAddress(object):
       self.binPrivKey32_Plain    = SecureBinaryData()
       self.binChaincode          = SecureBinaryData()
       self.childIdentifier       = UINT32_MAX   # may allow strings in the future
+      self.hdwDepth              = UINT8_MAX    # may allow strings in the future
       self.isLocked              = False
       self.useEncryption         = False
       self.isInitialized         = False
@@ -1615,8 +1620,8 @@ class PyBtcAddress(object):
       if self.hasPrivKey():
          if self.hasPlainPriv():
             return ExtendedKey( SecureBinaryData(self.binPrivKey32_Plain),
-                                self.SecureBinaryData(binPubKey33or65),
-                                self.SecureBinaryData(binChaincode))
+                                SecureBinaryData(self.binPubKey33or65),
+                                SecureBinaryData(self.binChaincode))
 
          elif not self.hasEncrPriv():
             raise WalletLockError, 'hasPrivKey() but not hasPlain or hasEncr'
@@ -1624,8 +1629,8 @@ class PyBtcAddress(object):
       if self.hasPubKey():
          # It's silly, but it's cleaner to do the round-trip than type-checking
          return ExtendedKey(  SecureBinaryData(0),
-                              SecureBinaryData(binPubKey33or65).toBinStr(),
-                              SecureBinaryData(binChaincode).toBinStr())
+                              SecureBinaryData(self.binPubKey33or65),
+                              SecureBinaryData(self.binChaincode))
       
       else:
          raise WalletLockError, 'Need at least public key to create extended key'
@@ -1634,8 +1639,8 @@ class PyBtcAddress(object):
    #############################################################################
    def getFingerprint(self):
       extKey = ExtendedKey(  SecureBinaryData(0),
-                             SecureBinaryData(binPubKey33or65).toBinStr(),
-                             SecureBinaryData(binChaincode).toBinStr())
+                             SecureBinaryData(self.binPubKey33or65),
+                             SecureBinaryData(self.binChaincode))
       return extKey.getFingerprint()
 
 
@@ -1753,10 +1758,12 @@ class PyBtcAddress(object):
    #############################################################################
    def createFromPublicKeyData(self, pubKey33or65, chksum=None):
 
-      assert(pubKey33or65.getSize()==65)
+      pubKey33or65 = SecureBinaryData(pubKey33or65)
+
+      assert(pubKey33or65.getSize() in (33,65))
       self.__init__()
       self.binAddr160 = pubKey33or65.getHash160()
-      self.binPubKey33or65 = pubKey33or65
+      self.binPubKey33or65 = pubKey33or65.copy()
       self.isInitialized = True
       self.isLocked = False
       self.useEncryption = False
@@ -2248,6 +2255,7 @@ class PyBtcAddress(object):
          self.binPrivKey32_Plain = sec(serializedData.get(BINARY_CHUNK, 32))
 
       rawPublicKey               =     serializedData.get(BINARY_CHUNK, 65)
+      self.binChaincode          = sec(serializedData.get(BINARY_CHUNK, 32))
 
       # Determine if key is compressed or not
       if rawPublicKey[0] == '\x04':
@@ -9460,6 +9468,22 @@ def convertKeyDataToAddress_1_35(privKey=None, pubKey=None):
    return pubKey.getHash160()
 
 
+
+
+
+
+
+################################################################################
+################################################################################
+################################################################################
+#
+# The old wallet-version-1.35 classes.  In order to properly support the
+# original wallet version, I just copied and renamed the wallets and left
+# them exactly as they were, because I want to suppor them, but I don't 
+# want to mess up what's working already
+#
+################################################################################
+################################################################################
 ################################################################################
 class PyBtcAddress_1_35(object):
    """

@@ -862,73 +862,83 @@ if Test_EncryptedAddress:
 
    #############################################################################
    # Now testing chained-key (deterministic) address generation
-   print '\n\nTest chained priv key generation'
+   print '\n\nTest ChildKeyDerive priv key generation'
    print 'Starting with plain key data'
    chaincode = SecureBinaryData(hex_to_binary('ee'*32))
    addr0 = PyBtcAddress().createFromPlainKeyData(privKey, addr20)
+   addr0.binChaincode = chaincode.copy()
    pub0  = addr0.binPubKey33or65.copy()
    if debugPrint: addr0.pprint(indent=' '*3)
 
-   print '\nTest serializing address-chain-root',
+   print '\nTest serializing M'
    serializedAddr = addr0.serialize()
    retestAddr = PyBtcAddress().unserialize(serializedAddr)
    serializedRetest = retestAddr.serialize()
    printpassorfail(serializedAddr == serializedRetest)
 
-   print '\nGenerate chained PRIVATE key address'
-   print '  OP(addr[0] --> addr[1])'
-   addr1 = addr0.extendAddressChain()
+   print '\nGenerate Child(0) of PRIVATE key'
+   print '  OP(M --> M/0)'
+   addr1 = addr0.spawnChild(0)
    if debugPrint: addr1.pprint(indent=' '*3)
 
-   print '\n  OP(addr[0] --> addr[1]) [again]'
-   addr1a = addr0.extendAddressChain()
+   print '\n  OP(M --> M/0) [again]'
+   addr1a = addr0.spawnChild(0)
    if debugPrint: addr1a.pprint(indent=' '*3)
 
-   print '\n  OP(addr[1] --> addr[2])'
-   addr2 = addr1.extendAddressChain()
-   pub2 = addr2.binPubKey33or65.copy()
+   print '\n  OP(M/0 --> M/0/10)'
+   addr2 = addr1.spawnChild(10)
+   pub2  = addr2.binPubKey33or65.copy()
    priv2 = addr2.binPrivKey32_Plain.copy()
    if debugPrint: addr2.pprint(indent=' '*3)
 
    print '\nAddr1.privKey == Addr1a.privKey:',
    printpassorfail(addr1.binPubKey33or65 == addr1a.binPubKey33or65)
 
-   print '\nTest serializing priv-key-chained',
+   print '\nTest serializing derived keys'
    serializedAddr = addr2.serialize()
    retestAddr = PyBtcAddress().unserialize(serializedAddr)
    serializedRetest = retestAddr.serialize()
    printpassorfail(serializedAddr == serializedRetest)
+
+   privChildExtKey = [addr2.binPubKey33or65.toBinStr(), \
+                      addr2.binChaincode.toBinStr()]
    
    #############################################################################
    print '\n\nGenerate chained PUBLIC key address'
    print '    addr[0]'
    addr0 = PyBtcAddress().createFromPublicKeyData(pub0)
-   addr0.markAsRootAddr(chaincode)
+   addr0.binChaincode = chaincode.copy()
    if debugPrint: addr0.pprint(indent=' '*3)
 
-   print '\nTest serializing pub-key-only-root',
+   print '\nTest serializing M (public root)'
    serializedAddr = addr0.serialize()
    retestAddr = PyBtcAddress().unserialize(serializedAddr)
    serializedRetest = retestAddr.serialize()
    printpassorfail(serializedAddr == serializedRetest)
 
-   print '\n  OP(addr[0] --> addr[1])'
-   addr1 = addr0.extendAddressChain()
+   print '\nGenerate Child(0) of PUBLIC key'
+   print '  OP(M --> M/0)'
+   addr1 = addr0.spawnChild(0)
    if debugPrint: addr1.pprint(indent=' '*3)
 
-   print '\n  OP(addr[1] --> addr[2])'
-   addr2 = addr1.extendAddressChain()
-   pub2a = addr2.binPubKey33or65.copy()
+   print '\n  OP(M/0 --> M/0/10)'
+   pub1 = addr1.binPubKey33or65.copy()
+   addr2 = addr1.spawnChild(10)
    if debugPrint: addr2.pprint(indent=' '*3)
-
-   print '\nAddr2.PublicKey == Addr2a.PublicKey:',
-   printpassorfail(pub2 == pub2a)
 
    print '\nTest serializing pub-key-from-chain',
    serializedAddr = addr2.serialize()
    retestAddr = PyBtcAddress().unserialize(serializedAddr)
    serializedRetest = retestAddr.serialize()
    printpassorfail(serializedAddr == serializedRetest)
+
+
+   print '\nTest Public-Chain and Private-Chain Equiv'
+   pubChildExtKey = [addr2.binPubKey33or65.toBinStr(), \
+                     addr2.binChaincode.toBinStr()]
+
+   printpassorfail( privChildExtKey == pubChildExtKey)
+
 
    #############################################################################
    print '\n\nGenerate chained keys from locked addresses'
