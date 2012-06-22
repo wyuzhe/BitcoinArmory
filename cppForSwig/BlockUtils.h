@@ -522,6 +522,7 @@ public:
    uint32_t     getNumAddr(void) const {return addrMap_.size();}
    BtcAddress & getAddrByIndex(uint32_t i) { return *(addrPtrVect_[i]); }
    BtcAddress & getAddrByHash160(BinaryData const & a) { return addrMap_[a];}
+   BtcAddress * getAddrPtrByHash160(BinaryData const & a) ;
 
    void     sortLedger(void);
    uint32_t removeInvalidEntries(void);
