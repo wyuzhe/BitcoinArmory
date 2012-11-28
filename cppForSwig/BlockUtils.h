@@ -29,10 +29,8 @@
 #include <limits>
 
 #include "BinaryData.h"
-#include "BinaryDataMMAP.h"
 #include "BtcUtils.h"
 #include "BlockObj.h"
-#include "BlockObjRef.h"
 
 #include "cryptlib.h"
 #include "sha.h"
@@ -51,7 +49,7 @@
 
 using namespace std;
 
-class BlockDataManager_MMAP;
+class BlockDataManager_FileRefs;
 
 
 
@@ -86,16 +84,16 @@ public:
    bool      hasTxIn(void) const    { return (txPtrOfInput_    != NULL); }
    bool      hasTxOutInMain(void) const;
    bool      hasTxInInMain(void) const;
-   bool      hasTxOutZC(void) const { return (txPtrOfOutputZC_ != NULL); }
-   bool      hasTxInZC(void) const  { return (txPtrOfInputZC_  != NULL); }
+   bool      hasTxOutZC(void) const;
+   bool      hasTxInZC(void) const;
    bool      hasValue(void) const   { return (amount_!=0); }
    uint64_t  getValue(void) const   { return  amount_;}
 
    //////////////////////////////////////////////////////////////////////////////
-   TxOutRef  getTxOutRef(void) const;   
-   TxInRef   getTxInRef(void) const;   
-   TxOutRef  getTxOutRefZC(void) const {return txPtrOfOutputZC_->getTxOutRef(indexOfOutputZC_);}
-   TxInRef   getTxInRefZC(void) const  {return txPtrOfInputZC_->getTxInRef(indexOfInputZC_);}
+   TxOut     getTxOut(void) const;   
+   TxIn      getTxIn(void) const;   
+   TxOut     getTxOutZC(void) const {return txOfOutputZC_->getTxOut(indexOfOutputZC_);}
+   TxIn      getTxInZC(void) const  {return txOfInputZC_->getTxIn(indexOfInputZC_);}
    TxRef&    getTxRefOfOutput(void) const { return *txPtrOfOutput_; }
    TxRef&    getTxRefOfInput(void) const  { return *txPtrOfInput_;  }
    OutPoint  getOutPoint(void) { return OutPoint(getTxHashOfOutput(),indexOfOutput_);}
@@ -111,8 +109,10 @@ public:
    BinaryData    getTxHashOfInput(void);
    BinaryData    getTxHashOfOutput(void);
 
-   bool setTxInRef (TxRef* txref, uint32_t index, bool isZeroConf=false);
-   bool setTxOutRef(TxRef* txref, uint32_t index, bool isZeroConf=false);
+   bool setTxIn   (TxRef* txref, uint32_t index);
+   bool setTxOut  (TxRef* txref, uint32_t index);
+   bool setTxInZC (Tx*    tx,    uint32_t index);
+   bool setTxOutZC(Tx*    tx,    uint32_t index);
 
    //////////////////////////////////////////////////////////////////////////////
    bool isSourceUnknown(void) { return ( !hasTxOut() &&  hasTxIn() ); }
@@ -133,9 +133,10 @@ private:
    TxRef*    txPtrOfInput_;
    uint32_t  indexOfInput_;
 
-   TxRef*    txPtrOfOutputZC_;
+   // Zero-conf data isn't on disk, yet, so can't use TxRef
+   Tx *      txOfOutputZC_;
    uint32_t  indexOfOutputZC_;
-   TxRef*    txPtrOfInputZC_;
+   Tx *      txOfInputZC_;
    uint32_t  indexOfInputZC_;
 
    bool      isTxOutFromSelf_;
@@ -159,6 +160,7 @@ private:
 //    txHash_    -  hash of the tx in which this txin/txout was included
 //    index_     -  index of the txin/txout in this tx
 //    isValid_   -  default to true -- invalidated due to reorg/double-spend
+//    isCoinbase -  is the input side a coinbase/generation input
 //    isSentToSelf_ - if this is a txOut, did it come from ourself?
 //    isChangeBack_ - meaningless:  can't quite figure out how to determine
 //                    this unless I do a prescan to determine if all txOuts
@@ -172,6 +174,7 @@ private:
 //    txHash_    -  hash of this tx 
 //    index_     -  index of the tx in the block
 //    isValid_   -  default to true -- invalidated due to reorg/double-spend
+//    isCoinbase -  is the input side a coinbase/generation input
 //    isSentToSelf_ - if we supplied inputs and rx ALL outputs
 //    isChangeBack_ - if we supplied inputs and rx ANY outputs
 //
@@ -187,6 +190,7 @@ public:
       index_(UINT32_MAX),
       txTime_(0),
       isValid_(false),
+      isCoinbase_(false),
       isSentToSelf_(false),
       isChangeBack_(false) {}
 
@@ -196,6 +200,7 @@ public:
                BinaryData const & txhash, 
                uint32_t idx,
                uint64_t txtime=0,
+               bool isCoinbase=false,
                bool isToSelf=false,
                bool isChange=false) :
       addr20_(addr20),
@@ -205,6 +210,7 @@ public:
       index_(idx),
       txTime_(txtime),
       isValid_(true),
+      isCoinbase_(isCoinbase),
       isSentToSelf_(isToSelf),
       isChangeBack_(isChange) {}
 
@@ -215,6 +221,7 @@ public:
    uint32_t            getIndex(void) const     { return index_;         }
    uint32_t            getTxTime(void) const    { return txTime_;        }
    bool                isValid(void) const      { return isValid_;       }
+   bool                isCoinbase(void) const   { return isCoinbase_;    }
    bool                isSentToSelf(void) const { return isSentToSelf_;  }
    bool                isChangeBack(void) const { return isChangeBack_;  }
 
@@ -238,6 +245,7 @@ private:
    uint32_t         index_;  // either a tx index, txout index or txin index
    uint64_t         txTime_;
    bool             isValid_;
+   bool             isCoinbase_;
    bool             isSentToSelf_;
    bool             isChangeBack_;;
 
@@ -261,6 +269,7 @@ public:
 
 
    TxRef *    getTxRefPtr()  { return txrefPtr_; }
+   Tx         getTxCopy()    { return txrefPtr_->getTxCopy(); }
    BinaryData getTxHash()    { return txHash_; }
    uint32_t   getBlkNum()    { return blkNum_; }
    uint32_t   getTxIndex()   { return txIndex_; }
@@ -268,11 +277,17 @@ public:
    RegisteredTx(void) :
          txrefPtr_(NULL),
          txHash_(""),
-         blkNum_(0),
-         txIndex_(0) { }
+         blkNum_(UINT32_MAX),
+         txIndex_(UINT32_MAX) { }
 
-   RegisteredTx(BinaryData txHash, uint32_t blkNum, uint32_t txIndex) :
+   RegisteredTx(BinaryData const & txHash, uint32_t blkNum, uint32_t txIndex) :
          txrefPtr_(NULL),
+         txHash_(txHash),
+         blkNum_(blkNum),
+         txIndex_(txIndex) { }
+
+   RegisteredTx(TxRef* txptr, BinaryData const & txHash, uint32_t blkNum, uint32_t txIndex) :
+         txrefPtr_(txptr),
          txHash_(txHash),
          blkNum_(blkNum),
          txIndex_(txIndex) { }
@@ -283,6 +298,11 @@ public:
          blkNum_(txref.getBlockHeight()),
          txIndex_(txref.getBlockTxIndex()) { }
 
+   RegisteredTx(Tx & tx) :
+         txrefPtr_(tx.getTxRefPtr()),
+         txHash_(tx.getThisHash()),
+         blkNum_(tx.getBlockHeight()),
+         txIndex_(tx.getBlockTxIndex()) { }
 
    bool operator<(RegisteredTx const & rt2) const 
    {
@@ -304,7 +324,7 @@ public:
    /////
    AddressBookEntry(void) : addr160_(BtcUtils::EmptyHash_) { txList_.clear(); }
    AddressBookEntry(BinaryData a160) : addr160_(a160) { txList_.clear(); }
-   void addTx(TxRef & txref) { txList_.push_back( RegisteredTx(txref) ); }
+   void addTx(Tx & tx) { txList_.push_back( RegisteredTx(tx) ); }
    BinaryData getAddr160(void) { return addr160_; }
 
    /////
@@ -430,7 +450,7 @@ public:
 
    /////////////////////////////////////////////////////////////////////////////
    // addAddress when blockchain rescan req'd, addNewAddress for just-created
-   void addNewAddress(HashString addr);
+   void addNewAddress(BinaryData addr);
    void addAddress(BtcAddress const & newAddr);
    void addAddress(BinaryData    addr, 
                    uint32_t      firstTimestamp = 0,
@@ -469,19 +489,21 @@ public:
    // Scan a Tx for our TxIns/TxOuts.  Override default blk vals if you think
    // you will save time by not checking addresses that are much newr than
    // the block
-   pair<bool,bool> isMineBulkFilter( TxRef & tx );
-   void       scanTx(TxRef & tx, 
+   pair<bool,bool> isMineBulkFilter( Tx & tx );
+
+   void       scanTx(Tx & tx, 
                      uint32_t txIndex = UINT32_MAX,
                      uint32_t blktime = UINT32_MAX,
                      uint32_t blknum  = UINT32_MAX);
 
-   void       scanNonStdTx(uint32_t blknum, 
-                           uint32_t txidx, 
-                           TxRef&   txref,
-                           uint32_t txoutidx,
+   void       scanNonStdTx(uint32_t    blknum, 
+                           uint32_t    txidx, 
+                           Tx &        txref,
+                           uint32_t    txoutidx,
                            BtcAddress& addr);
 
-   LedgerEntry calcLedgerEntryForTx(TxRef & tx);
+   LedgerEntry calcLedgerEntryForTx(Tx & tx);
+   LedgerEntry calcLedgerEntryForTx(TxRef & txref);
    LedgerEntry calcLedgerEntryForTxStr(BinaryData txStr);
 
    // BlkNum is necessary for "unconfirmed" list, since it is dependent
@@ -514,7 +536,7 @@ public:
    void pprintLedger(void);
    void pprintAlot(uint32_t topBlk=0, bool withAddr=false);
 
-   void setBdmPtr(BlockDataManager_MMAP * bdmptr) {bdmPtr_=bdmptr;}
+   void setBdmPtr(BlockDataManager_FileRefs * bdmptr) {bdmPtr_=bdmptr;}
    void clearBlkData(void);
    
    vector<AddressBookEntry> createAddressBook(void);
@@ -532,22 +554,17 @@ private:
    map<OutPoint, TxIOPair>      nonStdTxioMap_;
    set<OutPoint>                nonStdUnspentOutPoints_;
 
-   // With MMAP'd blockchain, any wallets that are registered should be 
-   // aware that they are registered, and make sure the BDM is aware of 
-   // when addresses get added or deleted.
-   BlockDataManager_MMAP*       bdmPtr_;
+   BlockDataManager_FileRefs*       bdmPtr_;
 };
 
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-class ZeroConfData
+struct ZeroConfData
 {
-public:
-   TxRef         txref_;   
+   Tx            txobj_;   
    uint64_t      txtime_;
    list<BinaryData>::iterator iter_;
-
 };
 
 
@@ -631,7 +648,7 @@ typedef enum
 
 
 
-class BlockDataManager_MMAP;
+class BlockDataManager_FileRefs;
 
 
 
@@ -641,20 +658,22 @@ class BlockDataManager_MMAP;
 //
 // BlockDataManager is a SINGLETON:  only one is ever created.  
 //
-// Access it via BlockDataManager_MMAP::GetInstance();
+// Access it via BlockDataManager_FileRefs::GetInstance();
 //
 ////////////////////////////////////////////////////////////////////////////////
-class BlockDataManager_MMAP
+class BlockDataManager_FileRefs
 {
 private:
 
-   // These four data structures contain all the *real* data.  Everything 
-   // else is just references and pointers to this data
-   string                             blkfilePath_;
-   BinaryDataMMAP                     blockchainData_ALL_;
-   list<BinaryData>                   blockchainData_NEW_; 
-   map<HashString, BlockHeaderRef>    headerHashMap_;
-   map<HashString, TxRef>             txHashMap_;
+   // Store the full BlockHeaders in this map.  Store TxRefs in another map
+   map<HashString, BlockHeader>       headerMap_;
+
+   // We index Tx in a multimap, indexed by first X bytes of the hash
+   // If we need to get a tx by hash, get list of all of the ones with the
+   // matching prefix, and then compute hashes to find it.
+   // Saves a ton of space relative at the expense of search time
+   multimap<HashString, TxRef>        txHintMap_;
+   map<HashString, Tx>                selectedTxMap_;
 
    
    // Need a separate memory pool just for zero-confirmation transactions
@@ -666,56 +685,51 @@ private:
    string                             zcFilename_;
 
    // This is for detecting external changes made to the blk0001.dat file
-   uint64_t                           lastEOFByteLoc_;
-   uint64_t                           totalBlockchainBytes_;
-
-   // If we are really ambitious and have a lot of RAM, we might save
-   // all addresses for super-fast lookup.  The key is the 20B addr
-   // and the value is a vector of tx-hashes that include this addr
-   map<BinaryData, set<HashString> >  allAddrTxMap_;
-   bool                               isAllAddrLoaded_;
-
-   // For the case of keeping tx/header data on disk:
-   vector<string>                     blockchainFilenames_;
-   map<HashString, pair<int,int> >    txFileRefs_;
-   map<HashString, pair<int,int> >    headerFileRefs_;
-
+   string                             blkFileDir_;
+   uint32_t                           blkFileDigits_;
+   uint32_t                           blkFileStart_;
+   vector<string>                     blkFileList_;
+   uint64_t                           numBlkFiles_;
+   uint64_t                           lastBlkFileBytes_;
 
    // These should be set after the blockchain is organized
-   deque<BlockHeaderRef*>            headersByHeight_;
-   BlockHeaderRef*                   topBlockPtr_;
-   BlockHeaderRef*                   genBlockPtr_;
+   deque<BlockHeader*>                headersByHeight_;
+   BlockHeader*                       topBlockPtr_;
+   BlockHeader*                       genBlockPtr_;
+   uint32_t                           lastTopBlock_;
 
    // Reorganization details
-   bool                              lastBlockWasReorg_;
-   BlockHeaderRef*                   reorgBranchPoint_;
-   BlockHeaderRef*                   prevTopBlockPtr_;
-   set<HashString>                   txJustInvalidated_;
-   set<HashString>                   txJustAffected_;
+   bool                               lastBlockWasReorg_;
+   BlockHeader*                       reorgBranchPoint_;
+   BlockHeader*                       prevTopBlockPtr_;
+   set<HashString>                    txJustInvalidated_;
+   set<HashString>                    txJustAffected_;
 
    // Store info on orphan chains
-   vector<BlockHeaderRef*>           previouslyValidBlockHeaderPtrs_;
-   vector<BlockHeaderRef*>           orphanChainStartBlocks_;
+   vector<BlockHeader*>               previouslyValidBlockHeaderPtrs_;
+   vector<BlockHeader*>               orphanChainStartBlocks_;
 
-   static BlockDataManager_MMAP* theOnlyBDM_;
-   static bool bdmCreatedYet_;
-   bool isInitialized_;
+   static BlockDataManager_FileRefs*  theOnlyBDM_;
+   static bool                        bdmCreatedYet_;
+   bool                               isInitialized_;
 
 
    // These will be set for the specific network we are testing
    BinaryData GenesisHash_;
    BinaryData GenesisTxHash_;
    BinaryData MagicBytes_;
+   
+  
+   // Variables that will be updated as the blockchain loads:
+   // can be used to report load progress
+   uint64_t totalBlockchainBytes_;
+   uint64_t bytesReadSoFar_;
+   uint32_t blocksReadSoFar_;
+   uint16_t filesReadSoFar_;
 
 
-   // Since switching from RAM to mmap ops, we needed to combine the original
-   // blockchain scan with the wallet bulk-filter, i.e. combine
-   // readBlkFile_FromScratch   and   scanBlockchainForTx into one search.
-   // Additionally, make sure that each blockchain scan operation is checking
-   // for information related to these addresses.
-   //
    // We will now "register" all wallets and addresses, so that the BDM knows
-   // what addresses to look for 
+   // what addresses to look for in its first scan
    set<BtcWallet*>                    registeredWallets_;
    map<HashString, RegisteredAddress> registeredAddrMap_;
    list<RegisteredTx>                 registeredTxList_;
@@ -726,29 +740,56 @@ private:
 
 private:
    // Set the constructor to private so that only one can ever be created
-   BlockDataManager_MMAP(void);
+   BlockDataManager_FileRefs(void);
 
 public:
 
-   static BlockDataManager_MMAP & GetInstance(void);
-   bool isInitialized(void) { return isInitialized_;}
+   static BlockDataManager_FileRefs & GetInstance(void);
+   bool isInitialized(void) const { return isInitialized_;}
+
+   void SetBlkFileLocation(string   blkdir,
+                           uint32_t blkdigits,
+                           uint32_t blkstartidx);
    void SetBtcNetworkParams( BinaryData const & GenHash,
                              BinaryData const & GenTxHash,
                              BinaryData const & MagicBytes);
    void SelectNetwork(string netName);
 
+   BinaryData getGenesisHash(void)   { return GenesisHash_;   }
+   BinaryData getGenesisTxHash(void) { return GenesisTxHash_; }
+   BinaryData getMagicBytes(void)    { return MagicBytes_;    }
+
+   uint64_t getTotalBlockchainBytes(void) const {return totalBlockchainBytes_;}
+   uint16_t getTotalBlkFiles(void)        const {return numBlkFiles_;}
+   uint64_t getLoadProgressBytes(void)    const {return bytesReadSoFar_;}
+   uint32_t getLoadProgressBlocks(void)   const {return blocksReadSoFar_;}
+   uint16_t getLoadProgressFiles(void)    const {return filesReadSoFar_;}
+
    /////////////////////////////////////////////////////////////////////////////
    void Reset(void);
    int32_t          getNumConfirmations(BinaryData txHash);
-   BlockHeaderRef & getTopBlockHeader(void) ;
-   BlockHeaderRef & getGenesisBlock(void) ;
-   BlockHeaderRef * getHeaderByHeight(int index);
-   BlockHeaderRef * getHeaderByHash(BinaryData const & blkHash);
-   TxRef *          getTxByHash(BinaryData const & txHash);
-   string           getBlockfilePath(void) {return blkfilePath_;}
+   BlockHeader &    getTopBlockHeader(void) ;
+   BlockHeader &    getGenesisBlock(void) ;
+   BlockHeader *    getHeaderByHeight(int index);
+   BlockHeader *    getHeaderByHash(BinaryData const & blkHash);
+   string           getBlockfilePath(void) {return blkFileDir_;}
+
+   TxRef *          getTxRefPtrByHash(BinaryData const & txHash);
+   Tx               getTxByHash(BinaryData const & txHash);
+
+   //////////////////////////////////////////////////////////////////////////
+   // Returns a pointer to the TxRef as it resides in the multimap node
+   // There should only ever be exactly one copy
+   TxRef *          insertTxRef(HashString const & txHash,
+                                FileDataPtr & fdp,
+                                BlockHeader * bhptr=NULL);
 
    uint32_t getTopBlockHeight(void) {return getTopBlockHeader().getBlockHeight();}
 
+   bool isDirty(uint32_t numBlockToBeConsideredDirty=2016) const; 
+
+   uint32_t getNumTx(void) { return txHintMap_.size(); }
+   uint32_t getNumHeaders(void) { return headerMap_.size(); }
 
    /////////////////////////////////////////////////////////////////////////////
    // If you register you wallet with the BDM, it will automatically maintain 
@@ -772,43 +813,47 @@ public:
    bool     walletIsRegistered(BtcWallet & wlt);
    bool     addressIsRegistered(HashString addr160);
    void     insertRegisteredTxIfNew(HashString txHash);
-   void     registeredAddrScan( TxRef & tx );
+   void     registeredAddrScan( Tx & theTx );
+   void     registeredAddrScan( uint8_t const * txptr,
+                                uint32_t txSize=0,
+                                vector<uint32_t> * txInOffsets=NULL,
+                                vector<uint32_t> * txOutOffsets=NULL);
    void     resetRegisteredWallets(void);
    void     pprintRegisteredWallets(void);
 
    // Parsing requires the data TO ALREADY BE IN ITS PERMANENT MEMORY LOCATION
    // Pass in a wallet if you want to update the initialScanTxHashes_/OutPoints_
-   bool             parseNewBlockData(BinaryRefReader & rawBlockDataReader,
-                                      uint64_t & currBlockchainSize);
+   bool     parseNewBlockData(BinaryRefReader & rawBlockDataReader,
+                              uint32_t fileIndex,
+                              uint32_t thisHeaderOffset,
+                              uint32_t blockSize);
+                     
 
 
    // Does a full scan!
-   uint32_t readBlkFile_FromScratch(string filename);
+   uint32_t parseEntireBlockchain(uint32_t cacheSz=DEFAULT_CACHE_SIZE);
 
    // When we add new block data, we will need to store/copy it to its
    // permanent memory location before parsing it.
    // These methods return (blockAddSucceeded, newBlockIsTop, didCauseReorg)
-   vector<bool>     addNewBlockData(   BinaryData rawBlockDataCopy,
-                                       bool writeToBlk0001=false);
-   vector<bool>     addNewBlockDataRef(BinaryDataRef nonPermBlockDataRef,
-                                       bool writeToBlk0001=false);
+   vector<bool>     addNewBlockData(   BinaryRefReader & brrRawBlock,
+                                       uint32_t        fileIndex,
+                                       uint32_t        thisHeaderOffset,
+                                       uint32_t        blockSize);
 
-   void             reassessAfterReorg(BlockHeaderRef* oldTopPtr,
-                                       BlockHeaderRef* newTopPtr,
-                                       BlockHeaderRef* branchPtr );
+   void             reassessAfterReorg(BlockHeader* oldTopPtr,
+                                       BlockHeader* newTopPtr,
+                                       BlockHeader* branchPtr );
 
-   bool hasTxWithHash(BinaryData const & txhash, bool inclZeroConf=true) const;
+   bool hasTxWithHash(BinaryData const & txhash, bool inclZeroConf=true);
    bool hasHeaderWithHash(BinaryData const & txhash) const;
 
-   uint32_t getNumBlocks(void) const { return headerHashMap_.size(); }
-   uint32_t getNumTx(void) const { return txHashMap_.size(); }
+   uint32_t getNumBlocks(void) const { return headerMap_.size(); }
+   uint32_t getNumTx(void) const { return txHintMap_.size(); }
 
-   vector<BlockHeaderRef*> getHeadersNotOnMainChain(void);
+   vector<BlockHeader*> getHeadersNotOnMainChain(void);
 
-   // Prefix searches would be much better if we had an some kind of underlying
-   // Trie/PatriciaTrie/DeLaBrandiaTrie instead of std::map<>.  For now this
-   // search will simply be suboptimal...
-   vector<BlockHeaderRef*> prefixSearchHeaders(BinaryData const & searchStr);
+   vector<BlockHeader*>    prefixSearchHeaders(BinaryData const & searchStr);
    vector<TxRef*>          prefixSearchTx     (BinaryData const & searchStr);
    vector<BinaryData>      prefixSearchAddress(BinaryData const & searchStr);
 
@@ -818,19 +863,19 @@ public:
                             uint32_t startBlknum=0,
                             uint32_t endBlknum=UINT32_MAX);
 
+   void rescanBlocks(uint32_t blk0=0, uint32_t blk1=UINT32_MAX);
 
    // This will only be used by the above method, probably wouldn't be called
    // directly from any other code
    void scanRegisteredTxForWallet( BtcWallet & wlt,
-                                 uint32_t blkStart=0,
-                                 uint32_t blkEnd=UINT32_MAX);
+                                   uint32_t blkStart=0,
+                                   uint32_t blkEnd=UINT32_MAX);
 
 
  
-   // This is extremely slow and RAM-hungry, but may be useful on occasion
-   uint32_t       readBlkFileUpdate(string filename="");
+   uint32_t       readBlkFileUpdate(void);
    bool           verifyBlkFileIntegrity(void);
-   vector<TxRef*> findAllNonStdTx(void);
+   //vector<TxRef*> findAllNonStdTx(void);
    
 
    // For zero-confirmation tx-handling
@@ -842,7 +887,7 @@ public:
    void pprintZeroConfPool(void);
    void rewriteZeroConfFile(void);
    void rescanWalletZeroConf(BtcWallet & wlt);
-   bool isTxFinal(TxRef & tx);
+   bool isTxFinal(Tx & tx);
 
 
    // After reading in all headers, find the longest chain and set nextHash vals
@@ -865,9 +910,17 @@ public:
    ////////////////////////////////////////////////////////////////////////////////
    // We're going to need the BDM's help to get the sender for a TxIn since it
    // sometimes requires going and finding the TxOut from the distant past
-   TxOutRef   getPrevTxOut(TxInRef & txin);
-   BinaryData getSenderAddr20(TxInRef & txin);
-   int64_t    getSentValue(TxInRef & txin);
+   TxOut      getPrevTxOut(TxIn & txin);
+   BinaryData getSenderAddr20(TxIn & txin);
+   int64_t    getSentValue(TxIn & txin);
+
+
+   /////////////////////////////////////////////////////////////////////////////
+   // A couple random methods to expose internal data structures for testing.
+   // These methods should not be used for nominal operation.
+   multimap<HashString, TxRef> &  getTxHintMapRef(void) { return txHintMap_; }
+   map<HashString, BlockHeader> & getHeaderMapRef(void) { return headerMap_; }
+   deque<BlockHeader*> &          getHeadersByHeightRef(void) { return headersByHeight_;}
 
 private:
 
@@ -875,8 +928,8 @@ private:
    // Start from a node, trace down to the highest solved block, accumulate
    // difficulties and difficultySum values.  Return the difficultySum of 
    // this block.
-   double traceChainDown(BlockHeaderRef & bhpStart);
-   void   markOrphanChain(BlockHeaderRef & bhpStart);
+   double traceChainDown(BlockHeader & bhpStart);
+   void   markOrphanChain(BlockHeader & bhpStart);
 
 
    
@@ -894,12 +947,12 @@ private:
 class BlockDataManager
 {
 public:
-   BlockDataManager(void) { bdm_ = &(BlockDataManager_MMAP::GetInstance());}
+   BlockDataManager(void) { bdm_ = &(BlockDataManager_FileRefs::GetInstance());}
    
-   BlockDataManager_MMAP & getBDM(void) { return *bdm_; }
+   BlockDataManager_FileRefs & getBDM(void) { return *bdm_; }
 
 private:
-   BlockDataManager_MMAP* bdm_;
+   BlockDataManager_FileRefs* bdm_;
 };
 
 

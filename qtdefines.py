@@ -10,18 +10,26 @@ from PyQt4.QtCore import *
 from PyQt4.QtGui  import *
 from armorycolors import Colors, htmlColor
 
-SETTINGS_PATH = os.path.join(ARMORY_HOME_DIR, 'ArmorySettings.txt')
-USERMODE = enum('Standard', 'Advanced', 'Developer')
-ARMORYMODE = enum('WITH_BLOCKCHAIN', 'WALLET_ONLY')
-WLTTYPES = enum('Plain', 'Crypt', 'WatchOnly', 'Offline')
-WLTFIELDS = enum('Name', 'Descr', 'WltID', 'NumAddr', 'Secure', \
-                    'BelongsTo', 'Crypto', 'Time', 'Mem')
-MSGBOX = enum('Good','Info', 'Question', 'Warning', 'Critical', 'Error')
+SETTINGS_PATH   = os.path.join(ARMORY_HOME_DIR, 'ArmorySettings.txt')
+USERMODE        = enum('Standard', 'Advanced', 'Expert')
+NETWORKMODE     = enum('Offline', 'Full', 'Disconnected')
+WLTTYPES        = enum('Plain', 'Crypt', 'WatchOnly', 'Offline')
+WLTFIELDS       = enum('Name', 'Descr', 'WltID', 'NumAddr', 'Secure', \
+                       'BelongsTo', 'Crypto', 'Time', 'Mem', 'Version')
+MSGBOX          = enum('Good','Info', 'Question', 'Warning', 'Critical', 'Error')
 
 STYLE_SUNKEN = QFrame.Box | QFrame.Sunken
 STYLE_RAISED = QFrame.Box | QFrame.Raised
+STYLE_PLAIN  = QFrame.Box | QFrame.Plain
 STYLE_NONE   = QFrame.NoFrame
- 
+
+CHANGE_ADDR_DESCR_STRING = '[[ Change received ]]'
+
+# TODO: switch to checking master branch once this is out
+HTTP_VERSION_FILE = 'http://bitcoinarmory.com/versions.txt'
+#HTTP_VERSION_FILE = 'https://raw.github.com/etotheipi/BitcoinArmory/logger/versions.txt'
+#HTTP_VERSION_FILE = 'https://github.com/downloads/etotheipi/BitcoinArmory/versions.txt'
+#HTTP_VERSION_FILE = 'http://bitcoinarmory.com/wp-content/uploads/2012/07/versions.txt'
 
 def HLINE(style=QFrame.Plain):
    qf = QFrame()
@@ -36,7 +44,7 @@ def VLINE(style=QFrame.Plain):
 
 
 # Setup fixed-width and var-width fonts
-def GETFONT(ftype, sz=10, bold=False):
+def GETFONT(ftype, sz=10, bold=False, italic=False):
    fnt = None
    if ftype.lower().startswith('fix'):
       if OS_WINDOWS:
@@ -44,10 +52,11 @@ def GETFONT(ftype, sz=10, bold=False):
       else: 
          fnt = QFont("DejaVu Sans Mono", sz)
    elif ftype.lower().startswith('var'):
-      if OS_WINDOWS:
-         fnt = QFont("Tahoma", sz)
-      else: 
-         fnt = QFont("Sans", sz)
+      fnt = QFont("Verdana", sz)
+      #if OS_WINDOWS:
+         #fnt = QFont("Tahoma", sz)
+      #else: 
+         #fnt = QFont("Sans", sz)
    elif ftype.lower().startswith('money'):
       if OS_WINDOWS:
          fnt = QFont("Courier", sz)
@@ -58,6 +67,9 @@ def GETFONT(ftype, sz=10, bold=False):
 
    if bold:
       fnt.setWeight(QFont.Bold)
+
+   if italic:
+      fnt.setItalic(True)
    
    return fnt
       
@@ -70,8 +82,8 @@ def UserModeStr(mode):
       return 'Standard'
    elif mode==USERMODE.Advanced:
       return 'Advanced'
-   elif mode==USERMODE.Developer:
-      return 'Developer'
+   elif mode==USERMODE.Expert:
+      return 'Expert'
 
 
 #######
@@ -154,7 +166,6 @@ def initialColResize(tblViewObj, sizeList):
    fixedCols, pctCols = [],[]
 
    nCols = tblViewObj.model().columnCount()
-   #totalWidth = sum([tblViewObj.horizontalHeader().sectionSize(c) for c in range(nCols)])
    
    for col,colVal in enumerate(sizeList):
       if colVal > 1:
@@ -182,6 +193,29 @@ class QRichLabel(QLabel):
       self.setWordWrap(doWrap)
       self.setAlignment(hAlign | vAlign)
 
+   def setText(self, text, color=None, size=None, bold=None, italic=None):
+      if color:
+         text = '<font color="%s">%s</font>' % (htmlColor(color), text)
+      if size:
+         if isinstance(size, int):
+            text = '<font size=%d>%s</font>' % (size, text)
+         else:
+            text = '<font size="%s">%s</font>' % (size, text)
+      if bold:
+         text = '<b>%s</b>' % text
+      if italic:
+         text = '<i>%s</i>' % text
+
+      QLabel.setText(self,text)
+
+   def setBold(self):
+      self.setText('<b>' + self.text() + '</b>')
+      
+   def setItalic(self):
+      self.setText('<i>' + self.text() + '</i>')
+
+
+
 class QMoneyLabel(QLabel):
    def __init__(self, nBtc, ndec=8, maxZeros=2, wColor=True, wBold=False):
       QLabel.__init__(self, coin2str(nBtc))
@@ -206,6 +240,7 @@ class QMoneyLabel(QLabel):
 
 
 class QLabelButton(QLabel):
+   mousePressOn = set()
 
    def __init__(self, txt):
       colorStr = htmlColor('LBtnNormalFG')
@@ -213,16 +248,25 @@ class QLabelButton(QLabel):
       self.plainText = txt
       self.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
 
-   def setText(self, txt):
-      colorStr = htmlColor('LBtnNormalFG')
-      QLabel.__init__(self, '<font color=%s>%s</u></font>' % (colorStr, txt))
+   
+   #def setText(self, txt):
+      #colorStr = htmlColor('LBtnNormalFG')
+      #QLabel.__init__(self, '<font color=%s>%s</u></font>' % (colorStr, txt))
   
    def sizeHint(self):
       w,h = relaxedSizeStr(self, self.plainText)
       return QSize(w,1.2*h)
 
+   def mousePressEvent(self, ev):  
+      # Prevent click-bleed-through to dialogs being opened
+      txt = str(self.text())
+      self.mousePressOn.add(txt)
+
    def mouseReleaseEvent(self, ev):  
-      self.emit(SIGNAL('clicked()'))  
+      txt = str(self.text())
+      if txt in self.mousePressOn:
+         self.mousePressOn.remove(txt)
+         self.emit(SIGNAL('clicked()'))  
 
    def enterEvent(self, ev):  
       ssStr = "QLabel { background-color : %s }" % htmlColor('LBtnHoverBG')
@@ -243,14 +287,13 @@ def createToolTipObject(tiptext, iconSz=2):
 
    
 ################################################################################
-def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr='Yes', noStr='No'): 
+def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr=None, noStr=None): 
    """
-   Creates a warning/question/critical dialog, but with a "Do not ask again"
-   checkbox.  Will return a pair  (response, DNAA-is-checked)
+   Creates a message box with custom button text and icon
    """
 
    class dlgWarn(QDialog):
-      def __init__(self, dtype, dtitle, wmsg, withCancel=False): 
+      def __init__(self, dtype, dtitle, wmsg, withCancel=False, yesStr=None, noStr=None):
          super(dlgWarn, self).__init__(None)
          
          msgIcon = QLabel()
@@ -271,7 +314,7 @@ def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr='Yes', noStr='No'):
    
          if len(fpix)>0:
             msgIcon.setPixmap(QPixmap(fpix))
-            msgIcon.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+            msgIcon.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
    
          lblMsg = QLabel(msg)
          lblMsg.setTextFormat(Qt.RichText)
@@ -283,6 +326,8 @@ def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr='Yes', noStr='No'):
          buttonbox = QDialogButtonBox()
 
          if dtype==MSGBOX.Question:
+            if not yesStr: yesStr = '&Yes'
+            if not noStr:  noStr = '&No'
             btnYes = QPushButton(yesStr)
             btnNo  = QPushButton(noStr)
             self.connect(btnYes, SIGNAL('clicked()'), self.accept)
@@ -290,13 +335,15 @@ def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr='Yes', noStr='No'):
             buttonbox.addButton(btnYes,QDialogButtonBox.AcceptRole)
             buttonbox.addButton(btnNo, QDialogButtonBox.RejectRole)
          else:
-            btnOk = QPushButton('Ok')
+            if not yesStr: yesStr = '&OK'
+            if not noStr:  noStr = '&Cancel'
+            btnOk = QPushButton(yesStr)
             self.connect(btnOk, SIGNAL('clicked()'), self.accept)
             buttonbox.addButton(btnOk, QDialogButtonBox.AcceptRole)
             if withCancel:
-               btnOk = QPushButton('Cancel')
-               self.connect(btnOk, SIGNAL('clicked()'), self.reject)
-               buttonbox.addButton(btnOk, QDialogButtonBox.RejectRole)
+               btnCancel = QPushButton(noStr)
+               self.connect(btnCancel, SIGNAL('clicked()'), self.reject)
+               buttonbox.addButton(btnCancel, QDialogButtonBox.RejectRole)
             
 
          spacer = QSpacerItem(20, 10, QSizePolicy.Fixed, QSizePolicy.Expanding)
@@ -311,10 +358,11 @@ def MsgBoxCustom(wtype, title, msg, wCancel=False, yesStr='Yes', noStr='No'):
          self.setLayout(layout)
          self.setWindowTitle(dtitle)
 
-   dlg = dlgWarn(wtype, title, msg, wCancel) 
+   dlg = dlgWarn(wtype, title, msg, wCancel, yesStr, noStr) 
    result = dlg.exec_()
    
    return result
+
 
 ################################################################################
 def MsgBoxWithDNAA(wtype, title, msg, dnaaMsg, wCancel=False, yesStr='Yes', noStr='No'):
@@ -452,5 +500,104 @@ def QImageLabel(imgfn, stretch='NoStretch'):
    lbl.setPixmap(QPixmap(imgfn))
    return lbl
    
+
+
+
+def restoreTableView(qtbl, hexBytes):
+   try:
+      binunpack = BinaryUnpacker(hex_to_binary(hexBytes))
+      hexByte = binunpack.get(UINT8)
+      binLen = binunpack.get(UINT8)
+      toRestore = []
+      for i in range(binLen):
+         sz = binunpack.get(UINT16)
+         if sz>0:
+            toRestore.append([i,sz])
+         
+      for i,c in toRestore[:-1]:
+         qtbl.setColumnWidth(i, c)
+   except Exception, e:
+      print 'ERROR!'
+      pass
+      # Don't want to crash the program just because couldn't load tbl data
+
+
+def saveTableView(qtbl):
+   nCol = qtbl.model().columnCount()
+   sz = [None]*nCol
+   for i in range(nCol):
+      sz[i] = qtbl.columnWidth(i)      
+
+   # Use 'ff' as a kind of magic byte for this data.  Most importantly
+   # we want to guarantee that the settings file will interpret this
+   # as hex data -- I once had an unlucky hex string written out with 
+   # all digits and then intepretted as an integer on the next load :( 
+   first = int_to_hex(nCol)
+   rest  = [int_to_hex(s, widthBytes=2) for s in sz]
+   return 'ff' + first + ''.join(rest)
+
+
+
+
+class QtBackgroundThread(QThread):
+   '''
+   Define a thread object that will execute a preparatory function
+   (blocking), and then a long processing thread followed by something
+   to do when it's done (both non-blocking).  After the 3 methods and 
+   their arguments are set, use obj.start() to kick it off.
+
+   NOTE: This is basically just a copy of PyBackgroundThread in
+         armoryengine.py, but I needed a version that can access
+         Qt elements.  Using vanilla python threads with calls 
+         to Qt signals/slots/methods/etc, throws all sorts of errors.
+   '''
+
+   def __init__(self, parent, *args, **kwargs):
+      QThread.__init__(self, parent)
+
+      self.preFunc  = lambda: ()
+      self.postFunc = lambda: ()
+
+      if len(args)==0:
+         self.func  = lambda: ()
+      else:
+         if not hasattr(args[0], '__call__'):
+            raise TypeError, ('QtBkgdThread constructor first arg '
+                              '(if any) must be a function')
+         else:
+            self.setThreadFunction(args[0], *args[1:], **kwargs)
+
+   def setPreThreadFunction(self, prefunc, *args, **kwargs):
+      def preFuncPartial():
+         prefunc(*args, **kwargs)
+      self.preFunc = preFuncPartial
+
+   def setThreadFunction(self, thefunc, *args, **kwargs):
+      def funcPartial():
+         thefunc(*args, **kwargs)
+      self.func = funcPartial
+
+   def setPostThreadFunction(self, postfunc, *args, **kwargs):
+      def postFuncPartial():
+         postfunc(*args, **kwargs)
+      self.postFunc = postFuncPartial
+
+
+   def run(self):
+      print 'Executing QThread.run()...'
+      self.func()
+      self.postFunc()
+
+   def start(self):
+      print 'Executing QThread.start()...'
+      # This is blocking: we may want to guarantee that something critical 
+      #                   is in place before we start the thread
+      self.preFunc()
+      super(QtBackgroundThread, self).start()
+
+
+
+
+
 
 

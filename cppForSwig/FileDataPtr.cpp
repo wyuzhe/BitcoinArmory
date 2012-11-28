@@ -5,15 +5,33 @@
 //  See LICENSE or http://www.gnu.org/licenses/agpl.html                      //
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
-#ifndef _BINARYDATAMMAP_H_
-#define _BINARYDATAMMAP_H_
-
-// Memory-Mapped Files.  Unfortunately, completely different between Win & Linux
-#if defined(_MSC_VER) || defined(__MINGW32__)
-   #include "BinaryDataMMAP_Windows.h"
-#else
-   #include "BinaryDataMMAP_POSIX.h"
-#endif
 
 
-#endif
+
+#include "FileDataPtr.h"
+
+FileDataCache FileDataPtr::globalCache_;
+
+
+
+void FileDataPtr::SetupFileCaching(uint64_t maxCacheSize_)
+{
+   globalCache_.setCacheSize(maxCacheSize_);
+}
+
+
+uint8_t* FileDataPtr::getUnsafeDataPtr(void) const
+{ 
+   return globalCache_.getCachedDataPtr(*this); 
+}
+
+BinaryData FileDataPtr::getDataCopy(void) const
+{ 
+   return globalCache_.getData(*this); 
+}
+
+void FileDataPtr::preCacheThisChunk(void) const
+{ 
+   globalCache_.getCachedDataPtr(*this); 
+}
+

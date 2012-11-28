@@ -32,10 +32,16 @@ Test_WalletMigrate    = False
 Test_AddressBooks     = False
 Test_URIParse         = False
 
+<<<<<<< HEAD
 Test_TxSimpleCreate_1_35   = False
 Test_EncryptedAddress_1_35 = False
 Test_EncryptedWallet_1_35  = False
 Test_TxDistProposals_1_35  = False
+=======
+Test_BkgdThread       = False
+Test_AsyncBDM         = False
+Test_Timers           = True
+>>>>>>> threading
 
 '''
 import optparse
@@ -167,7 +173,7 @@ if Test_BasicUtils:
 
    verTuple = (0,20,0,108)
    verInt   =  2000108
-   verStr   = '0.20.00.108'
+   verStr   = '0.20.0.108'
    testFunction('getVersionString',   verStr, verTuple)
    testFunction('getVersionInt',      verInt, verTuple)
    testFunction('readVersionString',  verTuple, verStr)
@@ -1621,7 +1627,56 @@ if Test_TxDistProposals:
    # TODO: test a multisig TxDP
 
 
+################################################################################
+################################################################################
+if Test_SelectCoins:
+   print ''
+   print '*********************************************************************'
+   print 'Testing SelectCoins'
+   print '*********************************************************************'
+   print ''
 
+   addrs = [ch*20 for ch in ['\xaa','\xbb','\xcc','\xdd','\xee']]
+   utxo3s = [ [addrs[0], ONE_BTC*1.0,     5  ], \
+              [addrs[0], ONE_BTC*1.5,     130], \
+              [addrs[0], ONE_BTC*0.0005,  200], \
+              [addrs[0], ONE_BTC*2.1,     130], \
+              [addrs[0], ONE_BTC*0.0001,  130], \
+              [addrs[0], ONE_BTC*5.5,       0], \
+              [addrs[0], ONE_BTC*0.3,       0], \
+              [addrs[0], ONE_BTC*10.1,    130], \
+              #[addrs[1], ONE_BTC*22.3331, 130], \
+              [addrs[1], ONE_BTC*0.0004, 1000], \
+              [addrs[1], ONE_BTC*1.1,     100], \
+              [addrs[1], ONE_BTC*3.3,     130], \
+              [addrs[2], ONE_BTC*5.2,     130], \
+              [addrs[3], ONE_BTC*5.3,     130], \
+              [addrs[4], ONE_BTC*5.4,     130] ]
+   utxolist = []
+   for trip in utxo3s:
+      utxo = PyUnspentTxOut() 
+      utxo.addr = trip[0]
+      utxo.val  = trip[1]
+      utxo.conf = trip[2]
+      utxo.binScript = '\x76\xa9\x14' + utxo.addr + '\x88\xac'
+      utxolist.append(utxo)
+   
+
+   targetOutVal = 10*ONE_BTC
+   minFee = 0
+   
+   
+   pprintUnspentTxOutList(utxolist, 'Test set of UTXOs')
+
+   testTargs = [t*ONE_BTC for t in [0.001, 0.01, 0.0005, 0.1, 1.0, 2.5, 5.0, 1.3928, 10.0, 22.32221, 50, 60, 90]]
+   testFees  = [f*ONE_BTC for f in [0, 0.0001, 0.0005, 0.01, 0.1]]
+
+   for targ in testTargs:
+      for fee in testFees:
+         selected = PySelectCoins(utxolist, targ, fee)
+         pprintUnspentTxOutList(selected, '(Targ,Fee) = (%s,%s)' % (coin2str(targ).strip(), coin2str(fee).strip()))
+
+   
 
 
 
@@ -1939,6 +1994,7 @@ if Test_URIParse:
          print '\t', key.ljust(12), '=', val
       
 
+<<<<<<< HEAD
 
    # TODO:  Need to also test Bitcoin URI *creation*
 
@@ -3449,3 +3505,282 @@ print '   Num Failed:    %d' % SUM_PASS_FAIL[1]
 
 
 
+=======
+if Test_BkgdThread:
+   import math
+
+   def longFuncA(a,b,c):
+      print 'FuncA', a,b,c
+      nIter = 10**7
+      start = RightNow()
+      for i in xrange(nIter):
+         math.log(float(i)+1)
+      print 'Finished %d log() calculations'%nIter,
+      print '...in', RightNow() - start, 'seconds'
+
+
+   def longFuncB(a,b,c):
+      print 'FuncB', a,b,c
+      nIter = 10**7
+      start = RightNow()
+      for i in xrange(nIter):
+         math.sqrt(float(i)+1)
+      print 'Finished %d sqrt() calculations'%nIter,
+      print '...in', RightNow() - start, 'seconds'
+
+
+   def longFuncC(a,b,c):
+      print 'FuncC', a,b,c
+      nIter = 10**7
+      start = RightNow()
+      for i in xrange(nIter):
+         math.sin(float(i)+1)
+      print 'Finished %d sin() calculations'%nIter,
+      print '...in', RightNow() - start, 'seconds'
+
+
+   print 'Creating Thread'
+   thr = PyBackgroundThread()
+   thr.setPreThreadFunction(longFuncA, 1, '2', 3.0)
+   thr.setThreadFunction(longFuncB, *(5, '6', 8.0))
+   thr.setPostThreadFunction(longFuncC, a=50, b='90', c=12.0)
+   print 'Starting thread...'
+   thr.start()
+   print 'Print statement right after thread.start()... waiting'
+   print 'Run longFuncC again just for fun, while we wait...'
+   longFuncC(0,0,0)
+
+
+
+
+if Test_AsyncBDM:
+
+   print '***********************************************************************'
+   print 'Testing asynchronous BlockDataManager'
+   print '***********************************************************************'
+
+   def printBDMStuff():
+      print 'BlkMode:   ', TheBDM.getBDMState()
+      print 'IsScanning:', TheBDM.isScanning()
+      print 'IsInit:    ', TheBDM.isInitialized()
+      print 'doBlock:   ', TheBDM.alwaysBlock
+      print 'ScanAllow: ', TheBDM.allowRescan
+      print 'isDirty:   ', TheBDM.isDirty
+      print 'NumAddr:   ', TheBDM.masterCppWallet.getNumAddr()
+      print 'NumPyWlt:  ', len(TheBDM.pyWltList) 
+      print 'NumCppWlt: ', len(TheBDM.cppWltList)
+      print 'NumInputs: ', TheBDM.inputQueue.qsize()
+      print 'NumOutput: ', TheBDM.outputQueue.qsize()
+
+   try:
+      print 'Starting AsyncBDM Test'
+      printBDMStuff()
+   
+   
+      print '\n\n(Async) Loading Blockchain from:', BTC_HOME_DIR
+      TheBDM.setSatoshiDir(BTC_HOME_DIR)
+   
+      start = RightNow()
+      TheBDM.loadBlockchain(wait=False)
+      print RightNow()-start, 'seconds'
+   
+      print TheBDM.getBDMState()
+      while TheBDM.isScanning():
+         print 'Still waiting for scan to finish...'
+         time.sleep(1)
+      printBDMStuff()
+      print 'Thread done!'
+   
+      print '\n\nGetting top block information'
+      head = TheBDM.getTopBlockHeader()
+      head.pprint()
+   
+      print '\n\nGetting genesis block information'
+      head = TheBDM.getHeaderByHeight(0)
+      head.pprint()
+   
+      # Do the same thing, but with blocking
+      print '\n\n(Async) Resetting'
+      TheBDM.Reset(wait=True)
+      print 'Done resetting BDM.'
+      printBDMStuff()
+   
+      print '\n\n(Blocking) Loading Blockchain from:', BTC_HOME_DIR
+      TheBDM.setBlocking(True)
+      TheBDM.setSatoshiDir(BTC_HOME_DIR)
+   
+      start = RightNow()
+      TheBDM.loadBlockchain()
+      print RightNow()-start, 'seconds'
+   
+      printBDMStuff()
+      print 'Done!'
+   
+      
+   
+      print 'Start testing blockchain with wallets, now'
+      print 'Resetting BDM'
+      TheBDM.Reset(wait=True)
+   
+      print 'Setting blocking=False'
+      TheBDM.setBlocking(False)
+      TheBDM.setSatoshiDir(BTC_HOME_DIR)
+   
+      cppWlt = Cpp.BtcWallet()
+   
+      if not USE_TESTNET:
+         cppWlt.addAddress_1_(hex_to_binary("604875c897a079f4db88e5d71145be2093cae194"))
+         cppWlt.addAddress_1_(hex_to_binary("8996182392d6f05e732410de4fc3fa273bac7ee6"))
+         cppWlt.addAddress_1_(hex_to_binary("b5e2331304bc6c541ffe81a66ab664159979125b"))
+         cppWlt.addAddress_1_(hex_to_binary("ebbfaaeedd97bc30df0d6887fd62021d768f5cb8"))
+      else:
+         # Test-network addresses
+         cppWlt.addAddress_1_(hex_to_binary("5aa2b7e93537198ef969ad5fb63bea5e098ab0cc"))
+         cppWlt.addAddress_1_(hex_to_binary("28b2eb2dc53cd15ab3dc6abf6c8ea3978523f948"))
+         cppWlt.addAddress_1_(hex_to_binary("720fbde315f371f62c158b7353b3629e7fb071a8"))
+         cppWlt.addAddress_1_(hex_to_binary("0cc51a562976a075b984c7215968d41af43be98f"))
+   
+      cppWltEmpty = Cpp.BtcWallet()
+   
+      print 'Registering cppWallet:'
+      TheBDM.registerWallet(cppWlt)
+      TheBDM.registerWallet(cppWltEmpty)
+       
+      print 'Loading blockchain with wallet already registered',
+      start = RightNow()
+      TheBDM.loadBlockchain()
+      while TheBDM.getBDMState()=='Scanning':
+         time.sleep(0.1)
+         print '.',
+      print (RightNow() - start), ' seconds'
+   
+      print '\n\nUpdating registered wallets with blockchain info'
+      start = RightNow()
+      TheBDM.updateWalletsAfterScan()
+      while TheBDM.getBDMState()=='Scanning':
+         time.sleep(0.1)
+         print '.',
+      print (RightNow() - start), ' seconds'
+   
+      #nAddr = cppWlt.getNumAddr()
+      #print 'Address Balances:'
+      #for i in range(nAddr):
+         #cppAddr = cppWlt.getAddrByIndex(i)
+         #bal = cppAddr.getSpendableBalance()
+         #print '   %s %s' % (hash160_to_addrStr(cppAddr.getAddrStr20())[:12], coin2str(bal))
+   
+      printBDMStuff()
+      nAddr = cppWlt.getNumAddr()
+      print 'Address Balances:'
+      for i in range(nAddr):
+         cppAddr = cppWlt.getAddrByIndex(i)
+         bal = cppAddr.getSpendableBalance()
+         print '   %s %s' % (hash160_to_addrStr(cppAddr.getAddrStr20())[:12], coin2str(bal))
+   
+   
+      if not USE_TESTNET:
+         cppWltEmpty.addAddress_1_(hex_to_binary("11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31"))
+      else:
+         cppWltEmpty.addAddress_1_(hex_to_binary("57ac7bfb77b1f678043ac6ea0fa67b4686c271e5"))
+         cppWltEmpty.addAddress_1_(hex_to_binary("b11bdcd6371e5b567b439cd95d928e869d1f546a"))
+         cppWltEmpty.addAddress_1_(hex_to_binary("2bb0974f6d43e3baa03d82610aac2b6ed017967d"))
+         cppWltEmpty.addAddress_1_(hex_to_binary("61d62799e52bc8ee514976a19d67478f25df2bb1"))
+   
+      # In practice, we won't be adding the addresses directly to the C++ wallets
+      # We will add them to the python wallets, which will absorb them into the 
+      # python code AND register them with the BDM
+      # But working with the C++ wallets directly, need to re-register them
+      print 'Re-registering cppWallets:'
+      TheBDM.registerWallet(cppWlt)
+      TheBDM.registerWallet(cppWltEmpty)
+   
+      print 'Need to rescan %d blocks (Wlt1)' % TheBDM.numBlocksToRescan(cppWlt)
+      print 'Need to rescan %d blocks (Wlt2)' % TheBDM.numBlocksToRescan(cppWltEmpty)
+      TheBDM.rescanBlockchain()
+      start = RightNow()
+      while TheBDM.getBDMState()=='Scanning':
+         time.sleep(0.1)
+         print '.',
+      print (RightNow() - start), ' seconds'
+      
+      start = RightNow()
+      print 'Update wallets after scan'
+      TheBDM.updateWalletsAfterScan()
+      print (RightNow() - start), ' seconds'
+
+      printBDMStuff()
+      nAddr = cppWltEmpty.getNumAddr()
+      print 'Address Balances:'
+      for i in range(nAddr):
+         cppAddr = cppWltEmpty.getAddrByIndex(i)
+         bal = cppAddr.getSpendableBalance()
+         print '   %s %s' % (hash160_to_addrStr(cppAddr.getAddrStr20())[:12], coin2str(bal))
+
+
+
+      # Test pybtcwallets:
+      # Include a test wallet with a tiny amount of BTC
+
+      # Since the BDM is already loaded, want to skip the scan until we're ready
+      if USE_TESTNET:
+         pywlt = PyBtcWallet().readWalletFile('armory.testnet.watchonly.wallet')
+      else:
+         pywlt = PyBtcWallet().readWalletFile('armory.mainnet.watchonly.wallet')
+
+      TheBDM.registerWallet(pywlt, isFresh=False, wait=True)
+      print 'NumToRescan: ', TheBDM.numBlocksToRescan(pywlt.cppWallet, wait=True)
+      TheBDM.rescanBlockchain(wait=False)
+      start = RightNow()
+      while TheBDM.getBDMState()=='Scanning':
+         time.sleep(0.1)
+         print '.',
+      print (RightNow() - start), ' seconds'
+
+   except:
+      print 'CRASH' 
+      raise
+   finally: 
+      TheBDM.execCleanShutdown()
+   
+   
+
+if Test_Timers:
+   print '***********************************************************************'
+   print 'Testing Timer Objects'
+   print '***********************************************************************'
+   
+   n=100000
+
+   TimerStart('Coin2Str10000x1')
+   for i in xrange(n):
+      j = coin2str(10002300000, maxZeros=2)
+   TimerStop('Coin2Str10000x1')
+
+
+   for i in xrange(n):
+      TimerStart('Coin2Str1x10000')
+      j = coin2str(10002300000, maxZeros=2)
+      TimerStop('Coin2Str1x10000')
+
+
+   TimerStart('LoopOnly')
+   for i in xrange(n):
+      pass
+   TimerStop('LoopOnly')
+
+   TimerStart('StartStopCycle')
+   for i in xrange(n):
+      TimerStart('MetaTimer')
+      TimerStop('MetaTimer')
+   TimerStop('StartStopCycle')
+
+   print ''
+   PrintTimings()
+   SaveTimingsCSV('testtimings.csv')
+   print ''
+
+
+
+   
+   
+>>>>>>> threading

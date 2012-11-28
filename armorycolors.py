@@ -1,3 +1,10 @@
+################################################################################
+#
+# Copyright (C) 2011-2012, Alan C. Reiner    <alan.reiner@gmail.com>
+# Distributed under the GNU Affero General Public License (AGPL v3)
+# See LICENSE or http://www.gnu.org/licenses/agpl.html
+#
+################################################################################
 import sys
 from PyQt4.QtGui  import QColor, QPalette, QApplication
 
@@ -75,6 +82,8 @@ def luminance(qcolor):
    return int(0.2*r + 0.6*g + 0.2*b)
    
 
+# I couldn't find a way to cleanly modify the palette this way when the Qapp 
+# was initialized in another file...
 QAPP = QApplication(sys.argv)
 qpal = QAPP.palette()
 
@@ -99,6 +108,8 @@ Colors.TextBlue         = tweakColor(Colors.Foreground, '+', [ -40,  -40, +100])
 Colors.SlightRed        = tweakColor(Colors.Background, '*', [1.05, 0.95, 0.95])
 Colors.SlightGreen      = tweakColor(Colors.Background, '*', [0.92, 1.08, 0.92])
 Colors.SlightBlue       = tweakColor(Colors.Background, '*', [0.95, 0.95, 1.05])
+Colors.SlightBkgdDark   = tweakColor(Colors.Background, '*', [0.95, 0.95, 0.95])
+Colors.SlightBkgdLight  = tweakColor(Colors.Background, '*', [1.05, 1.05, 1.05])
 
 Colors.TextNoConfirm    = tweakColor(Colors.Mid, '*', [ 0.9,  0.9,  0.9])
 Colors.TextSomeConfirm  = tweakColor(Colors.Mid, '*', [ 0.7,  0.7,  0.7])

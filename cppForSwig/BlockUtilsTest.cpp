@@ -6,6 +6,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 #include <iostream>
+#include <stdio.h>
 #include <fstream>
 #include <string>
 #include <sstream>
@@ -14,32 +15,37 @@
 #include "BtcUtils.h"
 #include "BlockUtils.h"
 #include "EncryptionUtils.h"
+#include "FileDataPtr.h"
 
 
 using namespace std;
 
-void copyFile(string src, string dst)
-{
-   fstream fin(src.c_str(), ios::in | ios::binary);
-   fstream fout(dst.c_str(), ios::out | ios::binary);
-   if(fin == NULL || fout == NULL) { cout <<"error"; return; }
-   // read from the first file then write to the second file
-   char c;
-   while(!fin.eof()) { fin.get(c); fout.put(c); }
-}
 
 
 ////////////////////////////////////////////////////////////////////////////////
-void TestReadAndOrganizeChain(string blkfile);
-void TestFindNonStdTx(string blkfile);
-void TestReadAndOrganizeChainWithWallet(string blkfile);
-void TestScanForWalletTx(string blkfile);
-void TestReorgBlockchain(string blkfile);
+void TestReadAndOrganizeChain(string blkdir);
+void TestFindNonStdTx(string blkdir);
+void TestReadAndOrganizeChainWithWallet(string blkdir);
+void TestBalanceConstruction(string blkdir);
+void TestReadAndUpdateBlkFile(string blkdir);
+void TestScanForWalletTx(string blkdir);
+void TestReorgBlockchain(string blkdir);
 void TestZeroConf(void);
+<<<<<<< HEAD
 void TestCrypto_1_35(void);
 void TestECDSA_1_35(void);
 void TestPointCompression_1_35(void);
 void TestHMAC(void);
+=======
+void TestCrypto(void);
+void TestECDSA(void);
+void TestPointCompression(void);
+void TestFileCache(void);
+void TestMemoryUsage_UseSystemMonitor(string blkdir);
+void TestOutOfOrder(string blkdir);
+
+void CreateMultiBlkFile(string blkdir);
+>>>>>>> threading
 ////////////////////////////////////////////////////////////////////////////////
 
 void printTestHeader(string TestName)
@@ -51,29 +57,76 @@ void printTestHeader(string TestName)
    cout << endl;
 }
 
+bool copyFile(string src, string dst)
+{
+   uint32_t srcsz = BtcUtils::GetFileSize(src);
+   if(srcsz == FILE_DOES_NOT_EXIST)
+      return false;
+
+   BinaryData temp(srcsz);
+   ifstream is(src.c_str(), ios::in  | ios::binary);
+   is.read((char*)temp.getPtr(), srcsz);
+   is.close();
+
+   ofstream os(dst.c_str(), ios::out | ios::binary);
+   os.write((char*)temp.getPtr(), srcsz);
+   os.close();
+   return true;
+}
+
+
+string pathJoin(string dir, string file)
+{
+   int const TOTALSZ = dir.size() + file.size() + 10;
+   char * path = new char[TOTALSZ];
+   sprintf(path, "%s/%s", dir.c_str(), file.c_str());
+   string ret(path);
+   return ret;
+}
+
+
+
 int main(void)
 {
-   BlockDataManager_MMAP::GetInstance().SelectNetwork("Test");
+   BlockDataManager_FileRefs::GetInstance().SelectNetwork("Main");
    
 
-   string blkfile("/home/alan/.bitcoin/testnet/blk0001.dat");
-   //string blkfile("/home/alan/.bitcoin/testnet/blk0001.dat");
-   //string blkfile("C:/Documents and Settings/VBox/Application Data/Bitcoin/testnet/blk0001.dat");
+   string blkdir("/home/alan/.bitcoin");
+   //string blkdir("/home/alan/.bitcoin/testnet/");
+   //string blkdir("C:/Users/VBox/AppData/Roaming/Bitcoin");
+   //string blkdir("C:/Users/VBox/AppData/Roaming/Bitcoin/testnet");
+   //string multitest("./multiblktest");
+   
+   // ONLY USE THIS TO CREATE THE TEST BLOCKCHAIN -- then comment it out
+   //CreateMultiBlkFile(blkdir); return 0;
+
 
    //printTestHeader("Read-and-Organize-Blockchain");
-   //TestReadAndOrganizeChain(blkfile);
+   //TestReadAndOrganizeChain(blkdir);
 
    //printTestHeader("Wallet-Relevant-Tx-Scan");
-   //TestScanForWalletTx(blkfile);
+   //TestScanForWalletTx(blkdir);
 
    //printTestHeader("Find-Non-Standard-Tx");
-   //TestFindNonStdTx(blkfile);
+   //TestFindNonStdTx(blkdir);
 
-   printTestHeader("Read-and-Organize-Blockchain-With-Wallet");
-   TestReadAndOrganizeChainWithWallet(blkfile);
+   //printTestHeader("Read-and-Organize-Blockchain-With-Wallet");
+   //TestReadAndOrganizeChainWithWallet(blkdir);
+
+   //printTestHeader("Test-Balance-Construction");
+   //TestBalanceConstruction(blkdir);
+
+   //printTestHeader("Read-and-Update-Blockchain");
+   //TestReadAndUpdateBlkFile(multitest);
 
    //printTestHeader("Blockchain-Reorg-Unit-Test");
-   //TestReorgBlockchain(blkfile);
+   //TestReorgBlockchain(blkdir);
+
+   //printTestHeader("Test-Memory-Usage-With-System-Monitor");
+   //TestMemoryUsage_UseSystemMonitor(blkdir);
+
+   printTestHeader("Test-out-of-order calls");
+   TestOutOfOrder(blkdir);
 
    //printTestHeader("Testing Zero-conf handling");
    //TestZeroConf();
@@ -91,6 +144,10 @@ int main(void)
    TestHMAC();
 
 
+   //printTestHeader("Testing file cache");
+   //TestFileCache();
+   
+   
    /////////////////////////////////////////////////////////////////////////////
    // ***** Print out all timings to stdout and a csv file *****
    //       Any method, anywhere, that called UniversalTimer
@@ -111,13 +168,14 @@ int main(void)
 
 
 
-void TestReadAndOrganizeChain(string blkfile)
+void TestReadAndOrganizeChain(string blkdir)
 {
-   BlockDataManager_MMAP & bdm = BlockDataManager_MMAP::GetInstance(); 
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
    /////////////////////////////////////////////////////////////////////////////
    cout << "Reading data from blockchain..." << endl;
    TIMER_START("BDM_Load_and_Scan_BlkChain");
-   bdm.readBlkFile_FromScratch(blkfile);  
+   bdm.SetBlkFileLocation(blkdir, 4, 1);
+   bdm.parseEntireBlockchain();  
    TIMER_STOP("BDM_Load_and_Scan_BlkChain");
    cout << endl << endl;
 
@@ -147,22 +205,26 @@ void TestReadAndOrganizeChain(string blkfile)
 
 
 
-void TestFindNonStdTx(string blkfile)
+void TestFindNonStdTx(string blkdir)
 {
-   BlockDataManager_MMAP & bdm = BlockDataManager_MMAP::GetInstance(); 
-   bdm.readBlkFile_FromScratch(blkfile); 
+   /*
    // This is mostly just for debugging...
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
+   bdm.SetBlkFileLocation(blkdir, 4, 1);
+   bdm.parseEntireBlockchain(); 
    bdm.findAllNonStdTx();
    // At one point I had code to print out nonstd txinfo... not sure
    // what happened to it...
+   */
 }
 
 
 
-void TestScanForWalletTx(string blkfile)
+void TestScanForWalletTx(string blkdir)
 {
-   BlockDataManager_MMAP & bdm = BlockDataManager_MMAP::GetInstance(); 
-   bdm.readBlkFile_FromScratch(blkfile);
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
+   bdm.SetBlkFileLocation(blkdir, 4, 1);
+   bdm.parseEntireBlockchain();
    /////////////////////////////////////////////////////////////////////////////
    BinaryData myAddress;
    BtcWallet wlt;
@@ -274,22 +336,26 @@ void TestScanForWalletTx(string blkfile)
 }
 
 
-void TestReadAndOrganizeChainWithWallet(string blkfile)
+void TestReadAndOrganizeChainWithWallet(string blkdir)
 {
    cout << endl << "Starting blockchain loading with wallets..." << endl;
    /////////////////////////////////////////////////////////////////////////////
-   BlockDataManager_MMAP & bdm = BlockDataManager_MMAP::GetInstance(); 
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
    BinaryData myAddress;
    BtcWallet wlt1;
    BtcWallet wlt2;
    
    // Main-network addresses
-   //myAddress.createFromHex("604875c897a079f4db88e5d71145be2093cae194"); wlt2.addAddress(myAddress);
-   //myAddress.createFromHex("8996182392d6f05e732410de4fc3fa273bac7ee6"); wlt2.addAddress(myAddress);
-   //myAddress.createFromHex("b5e2331304bc6c541ffe81a66ab664159979125b"); wlt2.addAddress(myAddress);
-   //myAddress.createFromHex("ebbfaaeedd97bc30df0d6887fd62021d768f5cb8"); wlt2.addAddress(myAddress);
+   myAddress.createFromHex("604875c897a079f4db88e5d71145be2093cae194"); wlt2.addAddress(myAddress);
+   myAddress.createFromHex("8996182392d6f05e732410de4fc3fa273bac7ee6"); wlt2.addAddress(myAddress);
+   myAddress.createFromHex("b5e2331304bc6c541ffe81a66ab664159979125b"); wlt2.addAddress(myAddress);
+   myAddress.createFromHex("ebbfaaeedd97bc30df0d6887fd62021d768f5cb8"); wlt2.addAddress(myAddress);
    myAddress.createFromHex("11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31"); wlt2.addAddress(myAddress);
+   myAddress.createFromHex("e826f4a4381453dcdcf9bfeedffe95de7c86ccbd"); wlt2.addAddress(myAddress);
 
+   // P2Pool Address
+   myAddress.createFromHex("4975703dc910107e2cc1321e632d136803e218e8"); wlt1.addAddress(myAddress);
+   
    // Add some relevant testnet addresses
    myAddress.createFromHex("0c6b92101c7025643c346d9c3e23034a8a843e21"); wlt2.addAddress(myAddress);
    myAddress.createFromHex("34c9f8dc91dfe1ae1c59e76cbe1aa39d0b7fc041"); wlt1.addAddress(myAddress);
@@ -303,10 +369,12 @@ void TestReadAndOrganizeChainWithWallet(string blkfile)
    bdm.registerWallet(&wlt1);
    bdm.registerWallet(&wlt2);
 
+
    /////////////////////////////////////////////////////////////////////////////
    cout << "Reading data from blockchain... (with wallet scan)" << endl;
    TIMER_START("BDM_Load_Scan_Blockchain_With_Wallet");
-   bdm.readBlkFile_FromScratch(blkfile);  
+   bdm.SetBlkFileLocation(blkdir, 4, 1);
+   bdm.parseEntireBlockchain();  
    TIMER_STOP("BDM_Load_Scan_Blockchain_With_Wallet");
    cout << endl << endl;
 
@@ -318,16 +386,15 @@ void TestReadAndOrganizeChainWithWallet(string blkfile)
    cout << (isGenOnMainChain ? "No Reorg!" : "Reorg Detected!") << endl;
    cout << endl << endl;
 
-   cout << endl << "Updating wallet (1) based on initial MMAP blockchain scan" << endl;
+   cout << endl << "Updating wallet (1) based on initial blockchain scan" << endl;
    TIMER_WRAP(bdm.scanBlockchainForTx(wlt1));
    cout << "Printing Wallet(1) Ledger" << endl;
    wlt1.pprintLedger();
 
-   cout << endl << "Updating wallet (2) based on initial MMAP blockchain scan" << endl;
+   cout << endl << "Updating wallet (2) based on initial blockchain scan" << endl;
    TIMER_WRAP(bdm.scanBlockchainForTx(wlt2));
    cout << "Printing Wallet(2) Ledger" << endl;
    wlt2.pprintLedger();
-
 
    cout << endl << "Rescanning wlt2 multiple times" << endl;
    TIMER_WRAP(bdm.scanBlockchainForTx(wlt2));
@@ -451,23 +518,149 @@ void TestReadAndOrganizeChainWithWallet(string blkfile)
    "dca1e9baf8d970229f5efa269a15dd420ea7cfab"
    */
 
-   cout << "Testing soft-scanning..." << endl;
-
    BinaryData txHash1 = BinaryData::CreateFromHex("2ec3a745e032c8bcc1061ebf270afcee47318a43462ba57215174084775c794d");
    BinaryData txHash2 = BinaryData::CreateFromHex("b754fa89f7eb7f7c564611d9297dbcb471cf8d3cb0d235686323b6a5b263b094");
 
-   LedgerEntry le;
-   le = wlt1.calcLedgerEntryForTx( *bdm.getTxByHash(txHash1) ); le.pprintOneLine(); cout << endl;
-   le = wlt2.calcLedgerEntryForTx( *bdm.getTxByHash(txHash1) ); le.pprintOneLine(); cout << endl;
-   le = wlt1.calcLedgerEntryForTx( *bdm.getTxByHash(txHash2) ); le.pprintOneLine(); cout << endl;
-   le = wlt2.calcLedgerEntryForTx( *bdm.getTxByHash(txHash2) ); le.pprintOneLine(); cout << endl;
+   if( bdm.getTxRefPtrByHash(txHash1) != NULL &&
+       bdm.getTxRefPtrByHash(txHash2) != NULL)
+   {
+      cout << "Testing soft-scanning..." << endl;
+      LedgerEntry le;
+      le = wlt1.calcLedgerEntryForTx( *bdm.getTxRefPtrByHash(txHash1) ); le.pprintOneLine(); cout << endl;
+      le = wlt2.calcLedgerEntryForTx( *bdm.getTxRefPtrByHash(txHash1) ); le.pprintOneLine(); cout << endl;
+      le = wlt1.calcLedgerEntryForTx( *bdm.getTxRefPtrByHash(txHash2) ); le.pprintOneLine(); cout << endl;
+      le = wlt2.calcLedgerEntryForTx( *bdm.getTxRefPtrByHash(txHash2) ); le.pprintOneLine(); cout << endl;
+   }
+
+   cout << "Num Headers: " << bdm.getNumHeaders() << endl;
+   cout << "Num Tx:      " << bdm.getNumTx() << endl;
   
 }
 
-
-void TestReorgBlockchain(string blkfile)
+void TestBalanceConstruction(string blkdir)
 {
-   BlockDataManager_MMAP & bdm = BlockDataManager_MMAP::GetInstance(); 
+   cout << endl << "Starting blockchain loading with wallets..." << endl;
+   /////////////////////////////////////////////////////////////////////////////
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
+   BinaryData myAddress;
+   BtcWallet wlt;
+   
+   // Main-network addresses
+   // I do not remember anymore what any of these addresses were for ...
+   // All I know is they probably have some tx history..
+   //myAddress.createFromHex("604875c897a079f4db88e5d71145be2093cae194"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("8996182392d6f05e732410de4fc3fa273bac7ee6"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("b5e2331304bc6c541ffe81a66ab664159979125b"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("ebbfaaeedd97bc30df0d6887fd62021d768f5cb8"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("e826f4a4381453dcdcf9bfeedffe95de7c86ccbd"); wlt.addAddress(myAddress);
+
+   // P2Pool Address
+   myAddress.createFromHex("4975703dc910107e2cc1321e632d136803e218e8"); wlt.addAddress(myAddress);
+
+   // Add some relevant testnet addresses
+   //myAddress.createFromHex("0c6b92101c7025643c346d9c3e23034a8a843e21"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("34c9f8dc91dfe1ae1c59e76cbe1aa39d0b7fc041"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("d77561813ca968270d5f63794ddb6aab3493605e"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("0e0aec36fe2545fb31a41164fb6954adcd96b342"); wlt.addAddress(myAddress);
+
+   // These two addresses were used at one point for testing unconfirmed balances
+   myAddress.createFromHex("8c61f6a7558af399e404d82beddcc4692db7b30f"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("14445409283ef413f5fb004338377bf042064922"); wlt.addAddress(myAddress);
+
+   bdm.registerWallet(&wlt);
+
+
+   /////////////////////////////////////////////////////////////////////////////
+   cout << "Reading data from blockchain... (with wallet scan)" << endl;
+   TIMER_START("BDM_Load_Scan_Blockchain_With_Wallet");
+   bdm.SetBlkFileLocation(blkdir, 4, 1);
+   bdm.parseEntireBlockchain();  
+   TIMER_STOP("BDM_Load_Scan_Blockchain_With_Wallet");
+   cout << endl << endl;
+
+
+   cout << endl << "Scanning wallet tx based on initial blockchain scan" << endl;
+   TIMER_WRAP(bdm.scanBlockchainForTx(wlt));
+   cout << "Printing Wallet Ledger" << endl;
+   wlt.pprintLedger();
+
+
+   // We want to check the memory pool transactions...
+   string mempool("C:/Users/VBox/AppData/Roaming/Armory/mempool.bin");
+   bdm.enableZeroConf(mempool);
+   bdm.scanBlockchainForTx(wlt);
+
+   uint32_t topBlk = bdm.getTopBlockHeight();
+   uint64_t balFul = wlt.getFullBalance();
+   uint64_t balSpd = wlt.getSpendableBalance(topBlk);
+   uint64_t balUnc = wlt.getUnconfirmedBalance(topBlk);
+
+   vector<UnspentTxOut> utxoF = wlt.getFullTxOutList(topBlk);
+   vector<UnspentTxOut> utxoS = wlt.getSpendableTxOutList(topBlk);
+   cout << "FULL:" << endl;
+   for(uint32_t i=0; i<utxoF.size(); i++)
+      utxoF[i].pprintOneLine(topBlk);
+
+   cout << "SPENDABLE:" << endl;
+   for(uint32_t i=0; i<utxoS.size(); i++)
+      utxoS[i].pprintOneLine(topBlk);
+}
+
+void TestReadAndUpdateBlkFile(string tempBlkDir)
+{
+
+   string blk3  = pathJoin(tempBlkDir, "blk0003.dat");
+   string blk3s = pathJoin(tempBlkDir, "blk0003sm.dat");
+   string blk3b = pathJoin(tempBlkDir, "blk0003big.dat");
+   string blk3g = pathJoin(tempBlkDir, "blk0003bigger.dat");
+   string blk4  = pathJoin(tempBlkDir, "blk0004.dat");
+   string blk4s = pathJoin(tempBlkDir, "blk0004sm.dat");
+   string blk5  = pathJoin(tempBlkDir, "blk0005.dat");
+   string blk5s = pathJoin(tempBlkDir, "blk0005sm.dat");
+   uint32_t nblk;
+
+   // Clean up from the previous run
+   copyFile(blk3s,  blk3);
+   if( BtcUtils::GetFileSize(blk4) != FILE_DOES_NOT_EXIST ) 
+      remove(blk4.c_str());
+   if( BtcUtils::GetFileSize(blk5) != FILE_DOES_NOT_EXIST ) 
+      remove(blk5.c_str());
+
+
+   // The newblk directory has a blk0003.dat file with one more block
+   // and blk0004.dat file with 4 more blocks
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
+   bdm.SetBlkFileLocation(tempBlkDir, 4, 1);
+   bdm.parseEntireBlockchain();  
+
+   // Test standard blkfile expansion
+   copyFile(blk3b, blk3);
+   nblk = bdm.readBlkFileUpdate();
+   cout << "New Blocks Read: " << nblk << endl;
+
+   // Test both blkfile expansion and splitting
+   copyFile(blk3g, blk3);
+   copyFile(blk4s, blk4);
+   nblk = bdm.readBlkFileUpdate();
+   cout << "New Blocks Read: " << nblk << endl;
+
+
+   // Test just blockfile splitting
+   copyFile(blk5s, blk5);
+   nblk = bdm.readBlkFileUpdate();
+   cout << "New Blocks Read: " << nblk << endl;
+
+}
+
+void TestReorgBlockchain(string blkdir)
+{
+   // June, 2012:  The reorg test compiled&worked up until I changed everything
+   //              to FileDataPtrs, and now I don't have a good way to force 
+   //              different blk files (because I auto-detect blkfiles...)
+   //              Will revive this when I figure it out...
+   /*
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
    /////////////////////////////////////////////////////////////////////////////
    //
    // BLOCKCHAIN REORGANIZATION UNIT-TEST
@@ -505,7 +698,8 @@ void TestReorgBlockchain(string blkfile)
    bdm.Reset();
    cout << "Done!" << endl;
    cout << "Reading in initial block chain (Blocks 0 through 4)..." ;
-   bdm.readBlkFile_FromScratch("reorgTest/blk_0_to_4.dat");
+   bdm.SetBlkFileLocation("reorgTest/blk_0_to_4.dat", 4, 1);
+   bdm.parseEntireBlockchain();
    bdm.organizeChain();
    cout << "Done" << endl;
 
@@ -617,6 +811,7 @@ void TestReorgBlockchain(string blkfile)
    // END BLOCKCHAIN REORG UNIT-TEST
    //
    /////////////////////////////////////////////////////////////////////////////
+   */
   
 
 }
@@ -625,12 +820,13 @@ void TestReorgBlockchain(string blkfile)
 void TestZeroConf(void)
 {
 
-   BlockDataManager_MMAP & bdm = BlockDataManager_MMAP::GetInstance(); 
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
    BinaryData myAddress;
    BtcWallet wlt;
    /*
    bdm.Reset();
-   bdm.readBlkFile_FromScratch("zctest/blk0001.dat");
+   bdm.SetBlkFileLocation("zctest/blk0001.dat", 4, 1);
+   bdm.parseEntireBlockchain();
 
    // More testnet addresses, with only a few transactions
    myAddress.createFromHex("4c98e1fb7aadce864b310b2e52b685c09bdfd5e7"); wlt.addAddress(myAddress);
@@ -683,6 +879,9 @@ void TestZeroConf(void)
    }
    */
 
+   /*  Not only does this test not work anymore (due to FileDataPtr updates),
+    *  I appear to have lost my carefully-constructed zctest directory since
+    *  I ran this last... :(
    ifstream is("zctest/mempool_new.bin", ios::in  | ios::binary);
    ofstream os("zctest/mempool.bin",     ios::out | ios::binary);
    is.seekg(0, ios::end);
@@ -699,7 +898,8 @@ void TestZeroConf(void)
    // Start testing balance/wlt update after a new block comes in
 
    bdm.Reset();
-   bdm.readBlkFile_FromScratch("zctest/blk0001.dat");
+   bdm.SetBlkFileLocation("zctest/blk0001.dat", 4, 1);
+   bdm.parseEntireBlockchain();
    // More testnet addresses, with only a few transactions
    wlt = BtcWallet();
    myAddress.createFromHex("4c98e1fb7aadce864b310b2e52b685c09bdfd5e7"); wlt.addAddress(myAddress);
@@ -721,6 +921,7 @@ void TestZeroConf(void)
    bdm.scanBlockchainForTx(wlt, topBlk);
    topBlk = bdm.getTopBlockHeader().getBlockHeight();
    wlt.pprintAlot(topBlk, true);
+   */
 
 }
 
@@ -1390,11 +1591,293 @@ void TestHMAC(void)
 
 
 
+<<<<<<< HEAD
 
 
 
 
 
+=======
+void TestFileCache(void)
+{
+   uint32_t nTestFiles = 3;
+   vector<string> filenames(nTestFiles);
+
+   // Create some test files
+   for(uint32_t i=0; i<nTestFiles; i++)
+   {
+      char fn[256];
+      sprintf(fn, "test_file_cache_%04d.dat", i);
+      filenames[i] = string(fn);
+      ofstream os(fn, ios::out | ios::binary);
+      for(uint32_t j=0; j<(i+3)*1024; j++)
+         os << (uint8_t)(j%256);
+      os.close();
+   }
+
+
+   // Setup the file cache -- test with a cache of 1 kB
+   FileDataPtr::SetupFileCaching(128);
+   FileDataCache & fdcache = FileDataPtr::getGlobalCacheRef();
+   
+   for(uint32_t i=0; i<nTestFiles; i++)
+   {
+      fdcache.openFile(i, filenames[i]); 
+      fdcache.pprintCacheState();
+   }
+
+
+   // Start testing only for a single file
+   vector<FileDataPtr> fdrefs;
+   //                           File  Start  Bytes
+   fdrefs.push_back(FileDataPtr(   0,     0,    16  ));
+   fdrefs.push_back(FileDataPtr(   0,     0,     8  ));
+   fdrefs.push_back(FileDataPtr(   0,     8,     8  ));
+   fdrefs.push_back(FileDataPtr(   0,     0,    32  ));
+   fdrefs.push_back(FileDataPtr(   0,     8,     8  ));
+   fdrefs.push_back(FileDataPtr(   0,     8,    16  ));
+   fdrefs.push_back(FileDataPtr(   0,  3060,    12  ));
+   fdrefs.push_back(FileDataPtr(   0,  3060,    13  ));
+   fdrefs.push_back(FileDataPtr(   0,  3050,    22  ));
+   fdrefs.push_back(FileDataPtr(   0,  1024,    64  ));
+   fdrefs.push_back(FileDataPtr(   0,   512,    64  ));
+   fdrefs.push_back(FileDataPtr(   0,   768,    64  ));
+   fdrefs.push_back(FileDataPtr(   0,   768,   129  ));
+
+   for(uint32_t i=0; i<fdrefs.size(); i++)
+   {
+      cout << fdrefs[i].getDataCopy().toHexStr() << endl;
+   }
+
+
+   FileDataPtr fdrHit(   0, 768,  16 );
+   FileDataPtr fdrMiss1( 0,   0, 128 );
+   FileDataPtr fdrMiss2( 0, 256, 128 );
+
+   cout << "Testing Cache Hits" << endl;
+   TIMER_START("CacheHit_50000");
+   for(uint32_t i=0; i<50000; i++)
+   {
+      fdrHit.getUnsafeDataPtr();
+   }
+   TIMER_STOP("CacheHit_50000");
+
+
+   cout << "Testing Cache Misses" << endl;
+   TIMER_START("CacheMiss_50000");
+   for(uint32_t i=0; i<50000; i++)
+   {
+      fdrMiss1.getUnsafeDataPtr();
+      fdrMiss2.getUnsafeDataPtr();
+   }
+   TIMER_STOP("CacheMiss_50000");
+
+
+
+
+   // Test multi-file caching
+   fdrefs.clear();
+   fdrefs.push_back(FileDataPtr(   0,     0,    16  ));
+   fdrefs.push_back(FileDataPtr(   0,     0,     8  ));
+   fdrefs.push_back(FileDataPtr(   0,     8,     8  ));
+   fdrefs.push_back(FileDataPtr(   0,     0,    32  ));
+   fdrefs.push_back(FileDataPtr(   0,     8,     8  ));
+   fdrefs.push_back(FileDataPtr(   0,     8,    16  ));
+   fdrefs.push_back(FileDataPtr(   0,  3060,    12  ));
+   fdrefs.push_back(FileDataPtr(   0,  3060,    13  ));
+   fdrefs.push_back(FileDataPtr(   0,  3050,    22  ));
+   fdrefs.push_back(FileDataPtr(   0,  1024,    64  ));
+   fdrefs.push_back(FileDataPtr(   0,   512,    64  ));
+   fdrefs.push_back(FileDataPtr(   0,   768,    64  ));
+   fdrefs.push_back(FileDataPtr(   0,   768,   129  ));
+   fdrefs.push_back(FileDataPtr(   1,     0,    16  ));
+   fdrefs.push_back(FileDataPtr(   1,     0,     8  ));
+   fdrefs.push_back(FileDataPtr(   1,     8,     8  ));
+   fdrefs.push_back(FileDataPtr(   1,     0,    32  ));
+   fdrefs.push_back(FileDataPtr(   1,     8,     8  ));
+   fdrefs.push_back(FileDataPtr(   1,     8,    16  ));
+   fdrefs.push_back(FileDataPtr(   1,  3060,    12  ));
+   fdrefs.push_back(FileDataPtr(   1,  3060,    13  ));
+   fdrefs.push_back(FileDataPtr(   1,  3050,    22  ));
+   fdrefs.push_back(FileDataPtr(   1,  1024,    64  ));
+   fdrefs.push_back(FileDataPtr(   1,   512,    64  ));
+   fdrefs.push_back(FileDataPtr(   1,   768,    64  ));
+   fdrefs.push_back(FileDataPtr(   1,   768,   129  ));
+   fdrefs.push_back(FileDataPtr(   2,     0,    16  ));
+   fdrefs.push_back(FileDataPtr(   2,   129,    16  ));
+   for(uint32_t i=0; i<fdrefs.size(); i++)
+      cout << fdrefs[i].getDataCopy().toHexStr() << endl;
+
+
+      
+
+
+}
+
+
+// This is not ever needed for anything, except to take an existing blk000X.dat
+// file and split it into multiple pieces.  I need this for testing purposes...
+void CreateMultiBlkFile(string blkdir)
+{
+   string targDir("multiblktest"); 
+
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
+   bdm.SetBlkFileLocation(blkdir, 4, 1);
+   bdm.parseEntireBlockchain();  
+
+   uint32_t topBlk = bdm.getTopBlockHeight();
+   uint32_t onethird = topBlk/3;
+   uint32_t twothird = 2*topBlk/3;
+
+   string fname;
+   BinaryData magic = bdm.getMagicBytes();
+   ofstream os;
+
+   fname = pathJoin(targDir, "blk0001.dat");
+   os.open(fname.c_str(), ios::out | ios::binary);
+   for(uint32_t i=0; i<onethird; i++)
+   {
+      BlockHeader * bhp = bdm.getHeaderByHeight(i);
+      os.write( bhp->serializeWholeBlock(magic, true).toBinStr().c_str(), bhp->getBlockSize()+8);
+   }
+   os.close();
+
+
+   fname = pathJoin(targDir, "blk0002.dat");
+   os.open(fname.c_str(), ios::out | ios::binary);
+   for(uint32_t i=onethird; i<twothird; i++)
+   {
+      BlockHeader * bhp = bdm.getHeaderByHeight(i);
+      os.write( bhp->serializeWholeBlock(magic, true).toBinStr().c_str(), bhp->getBlockSize()+8);
+   }
+   os.close();
+
+   fname = pathJoin(targDir, "blk0003sm.dat");
+   os.open(fname.c_str(), ios::out | ios::binary);
+   for(uint32_t i=twothird; i<topBlk-8; i++)
+   {
+      BlockHeader * bhp = bdm.getHeaderByHeight(i);
+      os.write( bhp->serializeWholeBlock(magic, true).toBinStr().c_str(), bhp->getBlockSize()+8);
+   }
+   os.close();
+
+   fname = pathJoin(targDir, "blk0003big.dat");
+   os.open(fname.c_str(), ios::out | ios::binary);
+   for(uint32_t i=twothird; i<topBlk-6; i++)
+   {
+      BlockHeader * bhp = bdm.getHeaderByHeight(i);
+      os.write( bhp->serializeWholeBlock(magic, true).toBinStr().c_str(), bhp->getBlockSize()+8);
+   }
+   os.close();
+
+   fname = pathJoin(targDir, "blk0003bigger.dat");
+   os.open(fname.c_str(), ios::out | ios::binary);
+   for(uint32_t i=twothird; i<topBlk-4; i++)
+   {
+      BlockHeader * bhp = bdm.getHeaderByHeight(i);
+      os.write( bhp->serializeWholeBlock(magic, true).toBinStr().c_str(), bhp->getBlockSize()+8);
+   }
+   os.close();
+   
+   fname = pathJoin(targDir, "blk0004sm.dat");
+   os.open(fname.c_str(), ios::out | ios::binary);
+   for(uint32_t i=topBlk-4; i<topBlk-2; i++)
+   {
+      BlockHeader * bhp = bdm.getHeaderByHeight(i);
+      os.write( bhp->serializeWholeBlock(magic, true).toBinStr().c_str(), bhp->getBlockSize()+8);
+   }
+   os.close();
+
+   fname = pathJoin(targDir, "blk0005sm.dat");
+   os.open(fname.c_str(), ios::out | ios::binary);
+   for(uint32_t i=topBlk-2; i<topBlk; i++)
+   {
+      BlockHeader * bhp = bdm.getHeaderByHeight(i);
+      os.write( bhp->serializeWholeBlock(magic, true).toBinStr().c_str(), bhp->getBlockSize()+8);
+   }
+   os.close();
+}
+
+
+
+
+void TestMemoryUsage_UseSystemMonitor(string blkdir)
+{
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
+   bdm.SetBlkFileLocation(blkdir, 4, 1);
+   bdm.parseEntireBlockchain();  
+
+   char a[256];
+   cout << "About to clear txHintMap" << endl;
+   cin >> a;
+   
+   bdm.getTxHintMapRef().clear();
+
+   cin >> a;
+   cout << "About to clear txPtrs in headers" << endl;
+   cin >> a;
+
+   for(uint32_t i=0; i<bdm.getTopBlockHeight(); i++)
+      bdm.getHeadersByHeightRef()[i]->getTxRefPtrList().clear();
+      
+   cin >> a;
+   cout << "About to clear Headers datacopy" << endl;
+   cin >> a;
+
+   for(uint32_t i=0; i<bdm.getTopBlockHeight(); i++)
+      bdm.getHeadersByHeightRef()[i]->clearDataCopy();
+
+   cin >> a;
+}
+
+
+
+
+void TestOutOfOrder(string blkdir)
+{
+   /////////////////////////////////////////////////////////////////////////////
+   BlockDataManager_FileRefs & bdm = BlockDataManager_FileRefs::GetInstance(); 
+   BinaryData myAddress;
+   BtcWallet wlt;
+   
+   // Main-network addresses
+   // I do not remember anymore what any of these addresses were for ...
+   // All I know is they probably have some tx history..
+   myAddress.createFromHex("604875c897a079f4db88e5d71145be2093cae194"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("8996182392d6f05e732410de4fc3fa273bac7ee6"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("b5e2331304bc6c541ffe81a66ab664159979125b"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("ebbfaaeedd97bc30df0d6887fd62021d768f5cb8"); wlt.addAddress(myAddress);
+
+   // P2Pool Address
+   //myAddress.createFromHex("4975703dc910107e2cc1321e632d136803e218e8"); wlt.addAddress(myAddress);
+
+   // Add some relevant testnet addresses
+   //myAddress.createFromHex("0c6b92101c7025643c346d9c3e23034a8a843e21"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("34c9f8dc91dfe1ae1c59e76cbe1aa39d0b7fc041"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("d77561813ca968270d5f63794ddb6aab3493605e"); wlt.addAddress(myAddress);
+   //myAddress.createFromHex("0e0aec36fe2545fb31a41164fb6954adcd96b342"); wlt.addAddress(myAddress);
+
+   // These two addresses were used at one point for testing unconfirmed balances
+   myAddress.createFromHex("8c61f6a7558af399e404d82beddcc4692db7b30f"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("14445409283ef413f5fb004338377bf042064922"); wlt.addAddress(myAddress);
+
+   bdm.registerWallet(&wlt);
+
+
+   /////////////////////////////////////////////////////////////////////////////
+   cout << "Reading data from blockchain... (with wallet scan)" << endl;
+   TIMER_START("BDM_Load_Scan_Blockchain_With_Wallet");
+   bdm.SetBlkFileLocation(blkdir, 4, 1);
+   bdm.parseEntireBlockchain();  
+   TIMER_STOP("BDM_Load_Scan_Blockchain_With_Wallet");
+   cout << endl << endl;
+
+   myAddress.createFromHex("11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("e826f4a4381453dcdcf9bfeedffe95de7c86ccbd"); wlt.addAddress(myAddress);
+
+   bdm.scanBlockchainForTx(wlt);
+}
+>>>>>>> threading
 
 
 

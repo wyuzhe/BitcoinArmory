@@ -22,7 +22,7 @@ from armorycolors import Colors, htmlColor
 
 WLTVIEWCOLS = enum('ID', 'Name', 'Secure', 'Bal')
 LEDGERCOLS  = enum('NumConf', 'UnixTime', 'DateStr', 'TxDir', 'WltName', 'Comment', \
-                   'Amount', 'isOther', 'WltID', 'TxHash', 'toSelf', 'DoubleSpend')
+                   'Amount', 'isOther', 'WltID', 'TxHash', 'isCoinbase', 'toSelf', 'DoubleSpend')
 ADDRESSCOLS  = enum('Address', 'Comment', 'NumTx', 'Imported', 'Balance')
 ADDRBOOKCOLS = enum('Address', 'WltID', 'NumSent', 'Comment')
 
@@ -59,6 +59,8 @@ class AllWalletsDispModel(QAbstractTableModel):
             wtype,typestr = determineWalletType(wlt, self.main)
             return QVariant(typestr)
          if col==COL.Bal: 
+            if not TheBDM.getBDMState()=='BlockchainReady':
+               return QVariant('(...)')
             bal = wlt.getBalance('Total')
             if bal==-1:
                return QVariant('(...)') 
@@ -71,7 +73,10 @@ class AllWalletsDispModel(QAbstractTableModel):
          elif col in (COL.Secure,):
             return QVariant(int(Qt.AlignHCenter | Qt.AlignVCenter))
          elif col in (COL.Bal,):
-            return QVariant(int(Qt.AlignLeft | Qt.AlignVCenter))
+            if not TheBDM.getBDMState()=='BlockchainReady':
+               return QVariant(int(Qt.AlignHCenter | Qt.AlignVCenter))
+            else:
+               return QVariant(int(Qt.AlignLeft | Qt.AlignVCenter))
       elif role==Qt.BackgroundColorRole:
          t = determineWalletType(wlt, self.main)[0]
          if t==WLTTYPES.WatchOnly:
@@ -138,7 +143,7 @@ class LedgerDispModelSimple(QAbstractTableModel):
       return len(self.ledger)
 
    def columnCount(self, index=QModelIndex()):
-      return 12
+      return 13
 
    def data(self, index, role=Qt.DisplayRole):
       COL = LEDGERCOLS
@@ -149,7 +154,7 @@ class LedgerDispModelSimple(QAbstractTableModel):
       wtype = determineWalletType(self.main.walletMap[wltID], self.main)[0]
 
       #LEDGERCOLS  = enum('NumConf', 'UnixTime','DateStr', 'TxDir', 'WltName', 'Comment', \
-                         #'Amount', 'isOther', 'WltID', 'TxHash', 'toSelf', 'DoubleSpend')
+                         #'Amount', 'isOther', 'WltID', 'TxHash', 'isCoinbase', 'toSelf', 'DoubleSpend')
       if role==Qt.DisplayRole:
          return QVariant(rowData[col])
       elif role==Qt.TextAlignmentRole:
@@ -169,7 +174,8 @@ class LedgerDispModelSimple(QAbstractTableModel):
          else:
             return QVariant( Colors.TblWltMine )
       elif role==Qt.ForegroundRole:
-         if self.index(index.row(),COL.DoubleSpend).data().toBool():
+         #if self.index(index.row(),COL.DoubleSpend).data().toBool():
+         if rowData[COL.DoubleSpend]:
             return QVariant(Colors.TextRed)
          if nConf <= 2:
             return QVariant(Colors.TextNoConfirm)
@@ -177,7 +183,8 @@ class LedgerDispModelSimple(QAbstractTableModel):
             return QVariant(Colors.TextSomeConfirm)
          
          if col==COL.Amount:
-            toSelf = self.index(index.row(), COL.toSelf).data().toBool()
+            #toSelf = self.index(index.row(), COL.toSelf).data().toBool()
+            toSelf = rowData[COL.toSelf]
             if toSelf:
                return QVariant(Colors.Mid)
             amt = float(rowData[COL.Amount])
@@ -191,22 +198,37 @@ class LedgerDispModelSimple(QAbstractTableModel):
             return f
       elif role==Qt.ToolTipRole:
          if col in (COL.NumConf, COL.DateStr):
-            if rowData[COL.NumConf]>5:
+            nConf = rowData[COL.NumConf]
+            isCB  = rowData[COL.isCoinbase]
+            isConfirmed = (nConf>119 if isCB else nConf>5)
+            if isConfirmed:
                return QVariant('Transaction confirmed!\n(%d confirmations)'%nConf)
             else:
-               tooltipStr = '%d/6 confirmations'%rowData[COL.NumConf]
-               tooltipStr += ( '\n\nFor small transactions, 2 or 3\n'
-                               'confirmations is usually acceptable.\n'
-                               'For larger transactions, you should\n'
-                               'wait for 6 confirmations before\n'
-                               'trusting that the transaction valid.')
+               tooltipStr = ''
+               if isCB:
+                  tooltipStr = '%d/120 confirmations'%nConf
+                  tooltipStr += ( '\n\nThis is a "generation" transaction from\n'
+                                 'Bitcoin mining.  These transactions take\n'
+                                 '120 confirmations (approximately one day)\n'
+                                 'before they are available to be spent.')
+               else:
+                  tooltipStr = '%d/6 confirmations'%rowData[COL.NumConf]
+                  tooltipStr += ( '\n\nFor small transactions, 2 or 3\n'
+                                 'confirmations is usually acceptable.\n'
+                                 'For larger transactions, you should\n'
+                                 'wait for 6 confirmations before\n'
+                                 'trusting that the transaction is valid.')
                return QVariant(tooltipStr)
          if col==COL.TxDir:
-            toSelf = self.index(index.row(), COL.toSelf).data().toBool()
+            #toSelf = self.index(index.row(), COL.toSelf).data().toBool()
+            toSelf = rowData[COL.toSelf]
             if toSelf:
                return QVariant('Bitcoins sent and received by the same wallet')
             else:
-               txdir = str(index.model().data(index).toString()).strip()
+               #txdir = str(index.model().data(index).toString()).strip()
+               txdir = rowData[COL.TxDir]
+               if rowData[COL.isCoinbase]:
+                  return QVariant('You mined these Bitcoins!')
                if txdir[0].startswith('-'):
                   return QVariant('Bitcoins sent')
                else:
@@ -243,6 +265,47 @@ class LedgerDispModelSimple(QAbstractTableModel):
 
 
 
+################################################################################
+class LedgerDispSortProxy(QSortFilterProxyModel):
+   """      
+   Acts as a proxy that re-maps indices to the table view so that data 
+   appears sorted, without actually touching the model
+   """      
+   def lessThan(self, idxLeft, idxRight):
+      COL = LEDGERCOLS
+      thisCol  = self.sortColumn()
+
+      def getDouble(idx, col):
+         return float(self.sourceModel().ledger[idx.row()][col])
+
+      def getInt(idx, col):
+         return int(self.sourceModel().ledger[idx.row()][col])
+
+
+      #LEDGERCOLS  = enum('NumConf', 'UnixTime', 'DateStr', 'TxDir', 'WltName', 'Comment', \
+                        #'Amount', 'isOther', 'WltID', 'TxHash', 'toSelf', 'DoubleSpend')
+      if thisCol==COL.NumConf:
+         lConf = getInt(idxLeft,  COL.NumConf)
+         rConf = getInt(idxRight, COL.NumConf)
+         if lConf==rConf:
+            tLeft  = getDouble(idxLeft,  COL.UnixTime)
+            tRight = getDouble(idxRight, COL.UnixTime)
+            return (tLeft<tRight)
+         return (lConf>rConf)
+      if thisCol==COL.DateStr:
+         tLeft  = getDouble(idxLeft,  COL.UnixTime)
+         tRight = getDouble(idxRight, COL.UnixTime)
+         return (tLeft<tRight)
+      if thisCol==COL.Amount:
+         btcLeft  = getDouble(idxLeft,  COL.Amount)
+         btcRight = getDouble(idxRight, COL.Amount)
+         return (abs(btcLeft) < abs(btcRight))
+      else:
+         return super(LedgerDispSortProxy, self).lessThan(idxLeft, idxRight)
+
+
+
+################################################################################
 class LedgerDispDelegate(QStyledItemDelegate):
 
    COL = LEDGERCOLS
@@ -262,11 +325,19 @@ class LedgerDispDelegate(QStyledItemDelegate):
 
       if index.column() == self.COL.NumConf:
          nConf = index.model().data(index).toInt()[0]
-         pixmaps = [':/conf%dt.png'%i for i in range(6)]
-         if nConf<6:
-            image = QImage(pixmaps[nConf])
-         else:
-            image = QImage(':/conf6t.png')
+         isCoinbase = index.model().index(index.row(), self.COL.isCoinbase).data().toBool()
+         image=None
+         if isCoinbase:
+            if nConf<120:
+               effectiveNConf = int(6*float(nConf)/120.)
+               image = QImage(':/conf%dt_nonum.png'%effectiveNConf)
+            else:
+               image = QImage(':/conf6t.png')
+         else: 
+            if nConf<6:
+               image = QImage(':/conf%dt.png'%nConf)
+            else:
+               image = QImage(':/conf6t.png')
          painter.fillRect(option.rect, bgcolor)
          pixmap = QPixmap.fromImage(image)
          #pixmap.scaled(70, 30, Qt.KeepAspectRatio)
@@ -274,11 +345,11 @@ class LedgerDispDelegate(QStyledItemDelegate):
       elif index.column() == self.COL.TxDir:
          # This is frustrating... QVariant doesn't support 64-bit ints
          # So I have to pass the amt as string, then convert here to long
-         toSelf = index.model().index(index.row(), self.COL.toSelf).data().toBool()
+         toSelf     = index.model().index(index.row(), self.COL.toSelf).data().toBool()
+         isCoinbase = index.model().index(index.row(), self.COL.isCoinbase).data().toBool()
          image = QImage()
 
          # isCoinbase still needs to be flagged in the C++ utils
-         isCoinbase = False
          if isCoinbase:
             image = QImage(':/moneyCoinbase.png')
          elif toSelf:
@@ -315,12 +386,44 @@ class WalletAddrDispModel(QAbstractTableModel):
       super(WalletAddrDispModel, self).__init__()
       self.main = mainWindow
       self.wlt = wlt
-      self.addr160List = [a.getAddr160() for a in self.wlt.getLinearAddrList()]
+
+      self.noChange = False
+      self.usedOnly = False
+      self.notEmpty = False
+
+      self.filterAddrList()
       
+
+   def setFilter(self, filt1=False, filt2=False, filt3=False):
+      self.notEmpty = filt1
+      self.noChange = filt2
+      self.usedOnly = filt3
+      self.filterAddrList()
+
+
+   def filterAddrList(self):
+      addrList = self.wlt.getLinearAddrList()
+
+      if self.notEmpty and TheBDM.getBDMState()=='BlockchainReady':
+         hasBalance = lambda a: (self.wlt.getAddrBalance(a.getAddr160(), 'Full')>0)
+         addrList = filter(hasBalance, addrList)
+
+      if self.noChange:
+         notChange = lambda a: (self.wlt.getCommentForAddress(a.getAddr160()) != CHANGE_ADDR_DESCR_STRING)
+         addrList = filter(notChange, addrList)
+
+      if self.usedOnly and TheBDM.getBDMState()=='BlockchainReady':
+         isUsed = lambda a: (len(self.wlt.getAddrTxLedger(a.getAddr160(), 'Full')) > 0)
+         addrList = filter(isUsed, addrList)
+         
+      self.addr160List = [a.getAddr160() for a in addrList]
+
+
    def reset(self):
-      self.addr160List = [a.getAddr160() for a in self.wlt.getLinearAddrList()]
-      QAbstractTableModel.reset(self)
+      self.filterAddrList()
+      super(WalletAddrDispModel, self).reset()
       
+         
 
    def rowCount(self, index=QModelIndex()):
       return len(self.addr160List)
@@ -354,6 +457,8 @@ class WalletAddrDispModel(QAbstractTableModel):
             else:
                return QVariant()
          if col==COL.Balance: 
+            if not TheBDM.getBDMState()=='BlockchainReady':
+               return QVariant('(...)')
             cppAddr = self.wlt.cppWallet.getAddrByHash160(addr160)
             return QVariant( coin2str(cppAddr.getFullBalance(), maxZeros=2) )
       elif role==Qt.TextAlignmentRole:
@@ -362,20 +467,39 @@ class WalletAddrDispModel(QAbstractTableModel):
          elif col in (COL.NumTx,COL.Imported):
             return QVariant(int(Qt.AlignHCenter | Qt.AlignVCenter))
          elif col in (COL.Balance,):
-            return QVariant(int(Qt.AlignRight | Qt.AlignVCenter))
+            if not TheBDM.getBDMState()=='BlockchainReady':
+               return QVariant(int(Qt.AlignHCenter | Qt.AlignVCenter))
+            else:
+               return QVariant(int(Qt.AlignRight | Qt.AlignVCenter))
       elif role==Qt.ForegroundRole:
          if col==COL.Balance:
+            if not TheBDM.getBDMState()=='BlockchainReady':
+               return QVariant(Colors.Foreground)
             cppAddr = self.wlt.cppWallet.getAddrByHash160(addr160)
             val = cppAddr.getFullBalance()
             if   val>0: return QVariant(Colors.TextGreen)
             else:       return QVariant(Colors.Foreground)
       elif role==Qt.FontRole:
-         doBold = len(self.wlt.cppWallet.getAddrByHash160(addr160).getTxLedger())>0
+         hasTx = len(self.wlt.cppWallet.getAddrByHash160(addr160).getTxLedger())>0
+         cmt = str(self.index(index.row(),COL.Comment).data().toString())
+         isChange = (cmt==CHANGE_ADDR_DESCR_STRING)
+
          if col==COL.Balance:
-            return GETFONT('Fixed',bold=doBold)
+            return GETFONT('Fixed',bold=hasTx)
          else:
-            return GETFONT('Var',bold=doBold)
+            doBold   = hasTx and not isChange
+            doItalic = isChange
+            return GETFONT('Var',bold=doBold, italic=doItalic)
+      elif role==Qt.ToolTipRole:
+         cmt = str(self.index(index.row(),COL.Comment).data().toString())
+         if cmt==CHANGE_ADDR_DESCR_STRING:
+            return QVariant('This address was created by Armory to '
+                            'receive change-back-to-self from an oversized '
+                            'transaction.')
       elif role==Qt.BackgroundColorRole:
+         if not TheBDM.getBDMState()=='BlockchainReady':
+            return QVariant( Colors.TblWltOther )
+
          cppAddr = self.wlt.cppWallet.getAddrByHash160(addr160)
          val = cppAddr.getFullBalance()
          if val>0:
@@ -403,8 +527,28 @@ class WalletAddrDispModel(QAbstractTableModel):
                return QVariant(int(Qt.AlignRight | Qt.AlignVCenter))
 
       return QVariant()
-            
-      
+
+   
+################################################################################
+class WalletAddrSortProxy(QSortFilterProxyModel):
+   """      
+   Acts as a proxy that re-maps indices to the table view so that data 
+   appears sorted, without actually touching the model
+   """      
+   def lessThan(self, idxLeft, idxRight):
+      COL = ADDRESSCOLS
+      thisCol  = self.sortColumn()
+      strLeft  = str(self.sourceModel().data(idxLeft).toString())
+      strRight = str(self.sourceModel().data(idxRight).toString())
+      if thisCol==COL.Address:
+         return (strLeft.lower() < strRight.lower())
+      elif thisCol==COL.Comment:
+         return (strLeft < strRight)
+      elif thisCol==COL.Balance:
+         return (float(strLeft.strip()) < float(strRight.strip()))
+      else:
+         return super(WalletAddrSortProxy, self).lessThan(idxLeft, idxRight)
+         
 
 ################################################################################
 class TxInDispModel(QAbstractTableModel):
@@ -413,7 +557,6 @@ class TxInDispModel(QAbstractTableModel):
       self.main = main
       self.txInList = []
       self.dispTable = []
-
 
       # If this is actually a TxDP in here, then let's use that
       # We do this to make sure we have somewhere to put txdp-specific
@@ -637,17 +780,26 @@ class SentToAddrBookModel(QAbstractTableModel):
       self.main  = main
       self.wlt   = self.main.walletMap[wltID]
 
-      # Get a vector of "AddressBookEntry" objects sorted by first-sent-to
-      self.addrBook = self.wlt.cppWallet.createAddressBook()
+      self.addrBook = []
 
-      # Delete entries that are our own addr in other wallets
-      otherAddr = []
-      for abe in self.addrBook:
-         if not self.main.getWalletForAddr160(abe.getAddr160()):
-            otherAddr.append(abe)
+      # SWIG BUG!  
+      # http://sourceforge.net/tracker/?func=detail&atid=101645&aid=3403085&group_id=1645
+      # Must use awkwardness to get around iterating a vector<RegisteredTx> in
+      # the python code... :(
+      for abe in TheBDM.getAddressBook(self.wlt.cppWallet):     
 
-      self.addrBook = otherAddr
-      
+         addr160 = abe.getAddr160()
+
+         # Only grab addresses that are not in any of your Armory wallets
+         if not self.main.getWalletForAddr160(addr160):
+            abeList = abe.getTxList()
+            ntx = len(abeList)
+            txhashlist = []
+            for i in range(ntx):
+               txhashlist.append( abeList[i].getTxHash() )
+            self.addrBook.append( [ addr160, txhashlist] )
+
+      print 'Done collecting addresses for addrbook'
 
    def rowCount(self, index=QModelIndex()):
       return len(self.addrBook)
@@ -657,13 +809,13 @@ class SentToAddrBookModel(QAbstractTableModel):
 
    def data(self, index, role=Qt.DisplayRole):
       COL = ADDRBOOKCOLS
-      row,col = index.row(), index.column()
-      abe     = self.addrBook[row]
-      addr160 = abe.getAddr160()
-      addrB58 = hash160_to_addrStr(addr160)
-      wltID   = self.main.getWalletForAddr160(addr160)
-      numSent =   len(abe.getTxList())
-      comment = self.wlt.getCommentForAddrBookEntry(abe)
+      row,col  = index.row(), index.column()
+      addr160  = self.addrBook[row][0]
+      addrB58  = hash160_to_addrStr(addr160)
+      wltID    = self.main.getWalletForAddr160(addr160)
+      txList   = self.addrBook[row][1]
+      numSent  = len(txList)
+      comment  = self.wlt.getCommentForTxList(addr160, txList)
       
       #ADDRBOOKCOLS = enum('Address', 'WltID', 'NumSent', 'Comment')
       if role==Qt.DisplayRole:
@@ -701,6 +853,24 @@ class SentToAddrBookModel(QAbstractTableModel):
             return QVariant(int(Qt.AlignHCenter | Qt.AlignVCenter))
 
       return QVariant()
+
+
+################################################################################
+class SentAddrSortProxy(QSortFilterProxyModel):
+   def lessThan(self, idxLeft, idxRight):
+      COL = ADDRBOOKCOLS
+      thisCol  = self.sortColumn()
+      strLeft  = str(self.sourceModel().data(idxLeft).toString())
+      strRight = str(self.sourceModel().data(idxRight).toString())
+
+
+      #ADDRBOOKCOLS = enum('Address', 'WltID', 'NumSent', 'Comment')
+
+      if thisCol==COL.Address:
+         return (strLeft.lower() < strRight.lower())
+      else:
+         return super(SentAddrSortProxy, self).lessThan(idxLeft, idxRight)
+
 
 """
 
@@ -790,7 +960,8 @@ class HeaderDataModel(QAbstractTableModel):
       txlist = header.getTxRefPtrList()
       total = 0
       for tx in txlist:
-         total += tx.getSumOfOutputs()
+         txcopy = tx.getTxCopy()
+         total += txcopy.getSumOfOutputs()
       return total
 
    def data(self, index, role=Qt.DisplayRole):
@@ -860,21 +1031,21 @@ class TxDataModel(QAbstractTableModel):
    def columnCount(self, index=QModelIndex()):
       return len(txColLabels)
 
-   def getTxSrcStr(self, txref):
-      if txref.getNumTxIn() > 1:
-         return '<%d sources>' % txref.getNumTxIn()
+   def getTxSrcStr(self, tx):
+      if tx.getNumTxIn() > 1:
+         return '<%d sources>' % tx.getNumTxIn()
       else:
-         txin = txref.getTxInRef(0)
+         txin = tx.getTxIn(0)
          if txin.isCoinbase():
             return '<COINBASE>'
          else:
             return hash160_to_addrStr(self.bdm.getSenderAddr20(txin))
 
-   def getTxDstStr(self, txref):
-      if txref.getNumTxOut() > 1:
-         return '<%d recipients>' % txref.getNumTxOut()
+   def getTxDstStr(self, tx):
+      if tx.getNumTxOut() > 1:
+         return '<%d recipients>' % tx.getNumTxOut()
       else:
-         return hash160_to_addrStr(txref.getTxOutRef(0).getRecipientAddr())
+         return hash160_to_addrStr(tx.getTxOut(0).getRecipientAddr())
 
    def data(self, index, role=Qt.DisplayRole):
       nTx = self.rowCount()
@@ -940,7 +1111,7 @@ class TxInDataModel(QAbstractTableModel):
       row,col = index.row(), index.column()
 
       if role==Qt.DisplayRole:
-         cppTxIn = self.tx.getTxInRef(row)
+         cppTxIn = self.tx.getTxIn(row)
          if cppTxIn == None:
             return QVariant()
          if col == TXIN_SRC:
@@ -1010,7 +1181,7 @@ class TxOutDataModel(QAbstractTableModel):
          return QVariant()
 
       if role==Qt.DisplayRole:
-         cppTxOut = self.txSelect.getTxOutRef(row)
+         cppTxOut = self.txSelect.getTxOut(row)
          if cppTxOut == None:
             return QVariant()
          if col == TXOUT_RECIP:

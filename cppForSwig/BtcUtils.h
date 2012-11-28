@@ -31,6 +31,7 @@
 #include "cryptlib.h"
 #include "sha.h"
 #include "ripemd.h"
+#include "UniversalTimer.h"
 
 #define HEADER_SIZE 80
 #define CONVERTBTC 100000000
@@ -46,6 +47,9 @@
    #define PDEBUG2(s1, s2)
    #define PDEBUG3(s1, s2, s3)
 #endif
+
+
+#define FILE_DOES_NOT_EXIST UINT64_MAX
 
 
 #define TESTNET_MAGIC_BYTES "fabfb5da"
@@ -314,17 +318,40 @@ public:
    }
 
    /////////////////////////////////////////////////////////////////////////////
-   static inline uint32_t calcVarIntSize(uint64_t regularIteger)
+   static inline uint32_t calcVarIntSize(uint64_t regularInteger)
    {
-      if(regularIteger < 0xfd)
+      if(regularInteger < 0xfd)
          return 1;
-      else if(regularIteger <= 0xffff)
+      else if(regularInteger <= 0xffff)
          return 3;
-      else if(regularIteger <= 0xffffffff)
+      else if(regularInteger <= 0xffffffff)
          return 5;
       else
          return 9;
    }
+
+
+   /////////////////////////////////////////////////////////////////////////////
+   static uint64_t GetFileSize(char const * filename)
+   {
+      return GetFileSize(string(filename));
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static uint64_t GetFileSize(string filename)
+   {
+      ifstream is(filename.c_str(), ios::in|ios::binary);
+      if(!is.is_open())
+         return FILE_DOES_NOT_EXIST;
+   
+      is.seekg(0, ios::end);
+      uint64_t filesize = (size_t)is.tellg();
+      is.close();
+      return filesize;
+   }
+
+
+
 
    /////////////////////////////////////////////////////////////////////////////
    static void getHash256(uint8_t const * strToHash,
@@ -771,6 +798,26 @@ public:
        }
        return dDiff;
    }
+
+
+   // This got more complicated when Bitcoin-Qt 0.8 switched from
+   // blk0001.dat to blocks/blk00000.dat
+   static string getBlkFilename(string dir, uint32_t nDigit, uint32_t fblkNum)
+   {
+      char* fname = new char[256];
+      if(nDigit==3)
+         sprintf(fname, "%s/blk%03d.dat", dir.c_str(), fblkNum);
+      else if(nDigit==4)
+         sprintf(fname, "%s/blk%04d.dat", dir.c_str(), fblkNum);
+      else if(nDigit==5)
+         sprintf(fname, "%s/blk%05d.dat", dir.c_str(), fblkNum);
+      else if(nDigit==6)
+         sprintf(fname, "%s/blk%06d.dat", dir.c_str(), fblkNum);
+      string strName(fname);
+      delete[] fname;
+      return strName;
+   }
+
 
 
    static string getOpCodeName(OPCODETYPE opcode)

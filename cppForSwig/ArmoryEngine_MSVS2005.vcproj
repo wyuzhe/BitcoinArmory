@@ -127,7 +127,7 @@
 				PreprocessorDefinitions="WIN32;_DEBUG;_CONSOLE"
 				MinimalRebuild="true"
 				BasicRuntimeChecks="0"
-				RuntimeLibrary="1"
+				RuntimeLibrary="3"
 				UsePrecompiledHeader="0"
 				WarningLevel="3"
 				Detect64BitPortabilityProblems="true"
@@ -278,6 +278,8 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
+				Optimization="3"
+				FavorSizeOrSpeed="1"
 				AdditionalIncludeDirectories="cryptopp"
 				PreprocessorDefinitions="WIN32;NDEBUG;_CONSOLE"
 				RuntimeLibrary="0"
@@ -345,15 +347,7 @@
 				>
 			</File>
 			<File
-				RelativePath=".\BinaryDataMMAP_Windows.cpp"
-				>
-			</File>
-			<File
 				RelativePath=".\BlockObj.cpp"
-				>
-			</File>
-			<File
-				RelativePath=".\BlockObjRef.cpp"
 				>
 			</File>
 			<File
@@ -373,6 +367,10 @@
 				>
 			</File>
 			<File
+				RelativePath=".\FileDataPtr.cpp"
+				>
+			</File>
+			<File
 				RelativePath=".\UniversalTimer.cpp"
 				>
 			</File>
@@ -387,19 +385,7 @@
 				>
 			</File>
 			<File
-				RelativePath=".\BinaryDataMMAP.h"
-				>
-			</File>
-			<File
-				RelativePath=".\BinaryDataMMAP_Windows.h"
-				>
-			</File>
-			<File
 				RelativePath=".\BlockObj.h"
-				>
-			</File>
-			<File
-				RelativePath=".\BlockObjRef.h"
 				>
 			</File>
 			<File
@@ -412,6 +398,10 @@
 			</File>
 			<File
 				RelativePath=".\EncryptionUtils.h"
+				>
+			</File>
+			<File
+				RelativePath=".\FileDataPtr.h"
 				>
 			</File>
 			<File

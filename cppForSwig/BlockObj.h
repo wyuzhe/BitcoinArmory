@@ -15,94 +15,108 @@
 #include <cassert>
 
 #include "BinaryData.h"
-#include "BlockObjRef.h"
+#include "FileDataPtr.h"
 
 
 
-class BlockHeaderRef;
-class OutPointRef;
-class TxInRef;
-class TxOutRef;
 class TxRef;
+class Tx;
 
 
 class BlockHeader
 {
+   friend class BlockDataManager_FileRefs;
 
-   friend class BlockDataManager_FullRAM;
-   friend class BlockHeaderRef;
-
-public: 
+public:
 
    /////////////////////////////////////////////////////////////////////////////
-   uint32_t            getVersion(void) const       { return version_;      }
-   BinaryData const &  getPrevHash(void) const      { return prevHash_;     }
-   BinaryData const &  getMerkleRoot(void) const    { return merkleRoot_;   }
-   uint32_t            getTimestamp(void) const     { return timestamp_;    }
-   BinaryData const &  getDiffBits(void) const      { return diffBits_;  }
-   uint32_t            getNonce(void) const         { return nonce_;        }
-   BinaryData const &  getThisHash(void) const      { return thisHash_;     }
-   BinaryData const &  getNextHash(void) const      { return nextHash_;     }
-   uint32_t            getNumTx(void) const         { return numTx_;        }
-   uint32_t            getBlockHeight(void) const   { return blockHeight_;  }
-   double              getDifficulty(void) const    { return difficultyDbl_;  }
-   double              getDifficultySum(void) const { return difficultySum_;  }
-   bool                isMainBranch(void) const     { return isMainBranch_;  }
-   bool                isOrphan(void) const         { return isOrphan_;  }
-   
-   /////////////////////////////////////////////////////////////////////////////
-   void setVersion(uint32_t i)        { version_ = i;                    }
-   void setPrevHash(BinaryData str)   { prevHash_.copyFrom(str);         }
-   void setMerkleRoot(BinaryData str) { merkleRoot_.copyFrom(str);       }
-   void setTimestamp(uint32_t i)      { timestamp_ = i;                  }
-   void setDiffBits(BinaryData val)   { diffBits_ = val;              }
-   void setNonce(uint32_t i)          { nonce_ = i;                      }
-   void setNextHash(BinaryData str)   { nextHash_.copyFrom(str);         }
+   BlockHeader(void) : 
+           isInitialized_(false),  isFinishedCalc_(false) {}
+   BlockHeader(uint8_t const * ptr)       { unserialize(ptr); }
+   BlockHeader(BinaryRefReader & brr)     { unserialize(brr); }
+   BlockHeader(BinaryDataRef const & str) { unserialize(str); }
+   BlockHeader(BinaryData    const & str) { unserialize(str); }
+   // SWIG needs a non-overloaded method
+   BlockHeader & unserialize_1_(BinaryData const & str) { unserialize(str); return *this; }
+
+   uint32_t           getVersion(void) const      { return  *(uint32_t*)(getPtr()  );  }
+   BinaryData const & getThisHash(void) const     { return thisHash_;                  }
+   BinaryData         getPrevHash(void) const     { return BinaryData(getPtr()+4 ,32); }
+   BinaryData const & getNextHash(void) const     { return nextHash_;                  }
+   BinaryData         getMerkleRoot(void) const   { return BinaryData(getPtr()+36,32); }
+   BinaryData         getDiffBits(void) const     { return BinaryData(getPtr()+72,4 ); }
+   uint32_t           getTimestamp(void) const    { return  *(uint32_t*)(getPtr()+68); }
+   uint32_t           getNonce(void) const        { return  *(uint32_t*)(getPtr()+76); }
+   uint32_t           getBlockHeight(void) const  { return blockHeight_;               }
+   bool               isMainBranch(void) const    { return isMainBranch_;              }
+   bool               isOrphan(void) const        { return isOrphan_;                  }
+   double             getDifficulty(void) const   { return difficultyDbl_;             }
+   double             getDifficultySum(void) const{ return difficultySum_;             }
 
    /////////////////////////////////////////////////////////////////////////////
-   BinaryData serialize(void);
-   void serialize(BinaryWriter & bw);
-   void unserialize_1_(BinaryData const & bh) { unserialize(bh); }
-   void unserialize(uint8_t const * start, BinaryData const * suppliedHash=NULL);
-   void unserialize(BinaryReader & br);
-   void unserialize(string const & str);
-   void unserialize(BinaryData const & str);
+   BinaryDataRef  getThisHashRef(void) const   { return thisHash_.getRef();            }
+   BinaryDataRef  getPrevHashRef(void) const   { return BinaryDataRef(getPtr()+4, 32); }
+   BinaryDataRef  getNextHashRef(void) const   { return nextHash_.getRef();            }
+   BinaryDataRef  getMerkleRootRef(void) const { return BinaryDataRef(getPtr()+36,32); }
+   BinaryDataRef  getDiffBitsRef(void) const   { return BinaryDataRef(getPtr()+72,4 ); }
+   uint32_t       getNumTx(void) const         { return txPtrList_.size();             }
+
+   /////////////////////////////////////////////////////////////////////////////
+   uint8_t const * getPtr(void) const  { assert(isInitialized_); return dataCopy_.getPtr(); }
+   uint32_t        getSize(void) const { assert(isInitialized_); return dataCopy_.getSize(); }
+   uint32_t        isInitialized(void) const { return isInitialized_; }
+   uint32_t        getBlockSize(void) const;
+   FileDataPtr     getBlockFilePtr(void) { return thisBlockFilePtr_; }
+   void            setBlockFilePtr(FileDataPtr b) { thisBlockFilePtr_ = b; }
+
+
+   /////////////////////////////////////////////////////////////////////////////
+   vector<TxRef*> &   getTxRefPtrList(void) {return txPtrList_;}
+   vector<BinaryData> getTxHashList(void);
+   BinaryData         calcMerkleRoot(vector<BinaryData>* treeOut=NULL);
+   bool               verifyMerkleRoot(void);
+   bool               verifyIntegrity(void);
+
+   /////////////////////////////////////////////////////////////////////////////
+   void          pprint(ostream & os=cout, int nIndent=0, bool pBigendian=true) const;
+   void          pprintAlot(ostream & os=cout);
+
+   /////////////////////////////////////////////////////////////////////////////
+   BinaryData    serialize(void)    { return dataCopy_; }
+
+   /////////////////////////////////////////////////////////////////////////////
+   BinaryData    serializeWholeBlock(BinaryData const & magic, 
+                                     bool withLead8Bytes=true) const;
+
+   // Just in case we ever want to calculate a difficulty-1 header via CPU...
+   uint32_t      findNonce(void);
+
+   /////////////////////////////////////////////////////////////////////////////
+   void unserialize(uint8_t const * ptr);
+   void unserialize(BinaryData const & str) { unserialize(str.getRef()); }
    void unserialize(BinaryDataRef const & str);
-   BlockHeader( uint8_t const * bhDataPtr, BinaryData* thisHash = NULL);
-   BlockHeader(BinaryData const & header80B);
-   BlockHeader( BinaryData const * serHeader = NULL,
-                BinaryData const * suppliedHash  = NULL,
-                uint64_t           fileLoc   = UINT64_MAX);
+   void unserialize(BinaryRefReader & brr);
 
-   void pprint(ostream & os=cout, int nIndent=0, bool pBigendian=true) const;
-   uint32_t findNonce(void);
+   void clearDataCopy() {dataCopy_.resize(0);}
 
 private:
-
-   uint32_t       version_;
-   BinaryData     prevHash_;
-   BinaryData     merkleRoot_;
-   uint32_t       timestamp_;
-   BinaryData     diffBits_; 
-   uint32_t       nonce_; 
+   BinaryData     dataCopy_;
+   bool           isInitialized_;
 
    // Derived properties - we expect these to be set after construct/copy
    BinaryData     thisHash_;
    double         difficultyDbl_;
+   FileDataPtr    thisBlockFilePtr_;  // points to beginning of blk, magic bytes
 
-   // To be calculated later
+   // Need to compute these later
    BinaryData     nextHash_;
-   uint32_t       numTx_;
    uint32_t       blockHeight_;
-   uint64_t       blkByteLoc_;
    double         difficultySum_;
    bool           isMainBranch_;
    bool           isOrphan_;
    bool           isFinishedCalc_;
    bool           isOnDiskYet_;
-
-   vector<Tx*>    txPtrList_;
-
+   vector<TxRef*> txPtrList_;
 };
 
 
@@ -112,7 +126,7 @@ private:
 // OutPoint is just a reference to a TxOut
 class OutPoint
 {
-   friend class BlockDataManager_FullRAM;
+   friend class BlockDataManager_FileRefs;
    friend class OutPointRef;
 
 public:
@@ -150,99 +164,171 @@ private:
 
 
 ////////////////////////////////////////////////////////////////////////////////
-// TxIn 
+////////////////////////////////////////////////////////////////////////////////
 class TxIn
 {
-   friend class BlockDataManager_FullRAM;
-   friend class TxInRef;
+   friend class BlockDataManager_FileRefs;
 
 public:
-   TxIn(void);
-   TxIn(OutPoint const & op, BinaryData const & script, uint32_t seq, bool coinbase); 
+   TxIn(void) : dataCopy_(0), scriptType_(TXIN_SCRIPT_UNKNOWN), 
+                scriptOffset_(0), parentHash_(0) {}
 
-   OutPoint const & getOutPoint(void) { return outPoint_; }
-   BinaryData const & getBinScript(void) { return binScript_; }
-   uint32_t getSequence(void) { return sequence_; }
-   uint32_t getScriptSize(void) { return scriptSize_; }
-   uint32_t getSize(void) { return nBytes_; }
+   // Ptr to the beginning of the TxIn, last two arguments are supplemental
+   TxIn(uint8_t const * ptr,  
+        uint32_t        nBytes=0, 
+        TxRef*          parent=NULL, 
+        int32_t         idx=-1) { unserialize(ptr, nBytes, parent, idx); } 
 
+   uint8_t const *  getPtr(void) const { assert(isInitialized()); return dataCopy_.getPtr(); }
+   uint32_t         getSize(void) const { assert(isInitialized()); return dataCopy_.getSize(); }
+   bool             isStandard(void) const { return scriptType_!=TXIN_SCRIPT_UNKNOWN; }
+   bool             isCoinbase(void) const;
+   bool             isInitialized(void) const {return dataCopy_.getSize() > 0; }
+   OutPoint         getOutPoint(void) const;
 
-   void setOutPoint(OutPoint const & op) { outPoint_ = op; }
-   void setBinScript(BinaryData const & scr) { binScript_.copyFrom(scr); }
-   void setSequence(uint32_t seq) { sequence_ = seq; }
-   void setIsMine(bool ismine) { isMine_ = ismine; }
+   // Script ops
+   BinaryData       getScript(void) const;
+   BinaryDataRef    getScriptRef(void) const;
+   uint32_t         getScriptSize(void) { return getSize() - (scriptOffset_ + 4); }
+   TXIN_SCRIPT_TYPE getScriptType(void) const { return scriptType_; }
+   uint32_t         getScriptOffset(void) const { return scriptOffset_; }
 
+   // SWIG doesn't handle these enums well, so we will provide some direct bools
+   bool             isScriptStandard(void) { return scriptType_ == TXIN_SCRIPT_STANDARD;}
+   bool             isScriptCoinbase(void) { return scriptType_ == TXIN_SCRIPT_COINBASE;}
+   bool             isScriptSpendCB(void)  { return scriptType_ == TXIN_SCRIPT_SPENDCB; }
+   bool             isScriptUnknown(void)  { return scriptType_ == TXIN_SCRIPT_UNKNOWN; }
 
-   void serialize(BinaryWriter & bw);
-   BinaryData serialize(void);
-   void unserialize(uint8_t const * ptr);
-   void unserialize(BinaryReader & br);
-   void unserialize(BinaryRefReader & brr);
-   void unserialize(BinaryData const & str);
-   void unserialize(BinaryDataRef const & str);
+   TxRef*           getParentTxPtr(void) { return parentTx_; }
+   uint32_t         getIndex(void) { return index_; }
+
+   void setParentTx(TxRef* txref, int32_t idx=-1) { parentTx_=txref; index_=idx;}
+
+   uint32_t         getSequence(void)   { return *(uint32_t*)(getPtr()+getSize()-4); }
+
+   BinaryData       getParentHash(void);
+   uint32_t         getParentHeight(void);
+
+   void             setParentHash(BinaryData const & txhash) {parentHash_ = txhash;}
+   void             setParentHeight(uint32_t blkheight) {parentHeight_ = blkheight;}
+
+   /////////////////////////////////////////////////////////////////////////////
+   BinaryData       serialize(void)    { return dataCopy_; }
+
+   /////////////////////////////////////////////////////////////////////////////
+   void unserialize(uint8_t const * ptr, 
+                        uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
+   void unserialize(BinaryData    const & str, 
+                        uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
+   void unserialize(BinaryDataRef const & str, 
+                        uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
+   void unserialize(BinaryRefReader & brr, 
+                        uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
+
+   /////////////////////////////////////////////////////////////////////////////
+   // Not all TxIns have sendor info.  Might have to go to the Outpoint and get
+   // the corresponding TxOut to find the sender.  In the case the sender is
+   // not available, return false and don't write the output
+   bool       getSenderAddrIfAvailable(BinaryData & addrTarget) const;
+   BinaryData getSenderAddrIfAvailable(void) const;
+
+   void pprint(ostream & os=cout, int nIndent=0, bool pBigendian=true) const;
+
 
 private:
-   OutPoint         outPoint_;
-   uint32_t         scriptSize_;
-   BinaryData       binScript_;
-   uint32_t         sequence_;
+   BinaryData       dataCopy_;
+   BinaryData       parentHash_;
+   uint32_t         parentHeight_;
 
    // Derived properties - we expect these to be set after construct/copy
-   uint32_t         nBytes_;
+   uint32_t         index_;
    TXIN_SCRIPT_TYPE scriptType_;
+   uint32_t         scriptOffset_;
+   TxRef*           parentTx_;
 
-   // To be calculated later
-   bool             isMine_;
 
 };
 
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-// TxOut 
 class TxOut
 {
-   friend class BlockDataManager_FullRAM;
-   friend class TxOutRef;
+   friend class BlockDataManager_FileRefs;
 
 public:
-   /////////////////////////////////////////////////////////////////////////////
-   TxOut(void);
 
    /////////////////////////////////////////////////////////////////////////////
-   TxOut(uint64_t val, BinaryData const & scr);
+   TxOut(void) : dataCopy_(0), parentHash_(0) {}
+   TxOut(uint8_t const * ptr, 
+         uint32_t        nBytes=0, 
+         TxRef*          parent=NULL, 
+         int32_t         idx=-1) { unserialize(ptr, nBytes, parent, idx); } 
 
-   uint64_t           getValue(void) { return value_; }
-   BinaryData const & getPkScript(void) { return pkScript_; }
-   uint32_t           getScriptSize(void) { return scriptSize_; }
-   bool               isStandard(void) { return scriptType_ != TXOUT_SCRIPT_UNKNOWN; }
-   BinaryData const & getRecipientAddr(void) { return recipientBinAddr20_; }
+   uint8_t const * getPtr(void) const { return dataCopy_.getPtr(); }
+   uint32_t        getSize(void) const { return dataCopy_.getSize(); }
+   uint64_t        getValue(void) const { return *(uint64_t*)(dataCopy_.getPtr()); }
+   bool            isStandard(void) const { return scriptType_ != TXOUT_SCRIPT_UNKNOWN; }
+   bool            isInitialized(void) const {return dataCopy_.getSize() > 0; }
+   TxRef*          getParentTxPtr(void) { return parentTx_; }
+   uint32_t        getIndex(void) { return index_; }
 
-   void               setValue(uint64_t val) { value_ = val; }
-   void               setPkScript(BinaryData const & scr) { pkScript_.copyFrom(scr); }
+   void setParentTx(TxRef * txref, int32_t idx=-1) { parentTx_=txref; index_=idx;}
 
-   void               serialize(BinaryWriter & bw);
-   BinaryData         serialize(void);
-   void               unserialize(uint8_t const * ptr);
-   void               unserialize(BinaryReader & br);
-   void               unserialize(BinaryRefReader & brr);
-   void               unserialize(BinaryData    const & str) ;
-   void               unserialize(BinaryDataRef const & str);
 
+   /////////////////////////////////////////////////////////////////////////////
+   BinaryData const & getRecipientAddr(void) const    { return recipientBinAddr20_; }
+   BinaryDataRef      getRecipientAddrRef(void) const { return recipientBinAddr20_.getRef(); }
+
+   /////////////////////////////////////////////////////////////////////////////
+   BinaryData         getScript(void);
+   BinaryDataRef      getScriptRef(void);
+   TXOUT_SCRIPT_TYPE  getScriptType(void) const { return scriptType_; }
+   uint32_t           getScriptSize(void) const { return getSize() - scriptOffset_; }
+
+   // SWIG doesn't handle these enums well, so we will provide some direct bools
+   bool               isScriptStandard(void) { return scriptType_ == TXOUT_SCRIPT_STANDARD;}
+   bool               isScriptCoinbase(void) { return scriptType_ == TXOUT_SCRIPT_COINBASE;}
+   bool               isScriptUnknown(void)  { return scriptType_ == TXOUT_SCRIPT_UNKNOWN; }
+
+
+   /////////////////////////////////////////////////////////////////////////////
+   BinaryData         serialize(void) { return BinaryData(dataCopy_); }
+   BinaryDataRef      serializeRef(void) { return dataCopy_; }
+
+   BinaryData         getParentHash(void);
+   uint32_t           getParentHeight(void);
+
+   void               setParentHash(BinaryData const & txhash) {parentHash_ = txhash;}
+   void               setParentHeight(uint32_t blkheight) {parentHeight_ = blkheight;}
+
+   /////////////////////////////////////////////////////////////////////////////
+   void unserialize(uint8_t const * ptr, 
+                         uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
+   void unserialize(BinaryData const & str, 
+                         uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
+   void unserialize(BinaryDataRef const & str, 
+                         uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
+   void unserialize(BinaryRefReader & brr, 
+                         uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
+
+   void  pprint(ostream & os=cout, int nIndent=0, bool pBigendian=true);
 
 private:
-   uint64_t          value_;
-   uint32_t          scriptSize_;
-   BinaryData        pkScript_;
+   BinaryData        dataCopy_;
+   BinaryData        parentHash_;
+   uint32_t          parentHeight_;
 
    // Derived properties - we expect these to be set after construct/copy
-   uint32_t          nBytes_;
+   uint32_t          scriptOffset_;
+   uint32_t          index_;
    TXOUT_SCRIPT_TYPE scriptType_;
    BinaryData        recipientBinAddr20_;
+   TxRef*            parentTx_;
 
-   // To be calculated later
-   bool       isMine_;
-   bool       isSpent_;
+   // No computed variables, because we're always re-computing these
+   // objects every time we want them
+
 
 };
 
@@ -254,53 +340,141 @@ private:
 ////////////////////////////////////////////////////////////////////////////////
 class Tx
 {
-   friend class BlockDataManager_FullRAM;
-   friend class TxRef;
+   friend class BlockDataManager_FileRefs;
 
 public:
-   Tx(void);
-
-   uint32_t          getVersion_(void)  { return version_;   }
-   uint32_t          getNumTxIn_(void)  { return numTxIn_;   }
-   uint32_t          getNumTxOut_(void) { return numTxOut_;  }
-   vector<TxIn>      getTxInList_(void) { return txInList_;  }
-   vector<TxOut>     getTxOutList_(void){ return txOutList_; }
-   uint32_t          getLockTime_(void) { return lockTime_;  }
-   uint32_t          getNumBytes(void)  { return nBytes_;  }
-
-   // We expect one of these two to be set so that we can get header info
-   BlockHeader*      getHeaderPtr(void)    { return headerPtr_;    }
-   BlockHeaderRef*   getHeaderRefPtr(void) { return headerRefPtr_; }
-   
-
+   Tx(void) : isInitialized_(false), headerPtr_(NULL), txRefPtr_(NULL),
+              offsetsTxIn_(0), offsetsTxOut_(0) {}
+   Tx(uint8_t const * ptr)       { unserialize(ptr);       }
+   Tx(BinaryRefReader & brr)     { unserialize(brr);       }
+   Tx(BinaryData const & str)    { unserialize(str);       }
+   Tx(BinaryDataRef const & str) { unserialize(str);       }
+   Tx(TxRef* txref);
      
+   uint8_t const * getPtr(void) const { return dataCopy_.getPtr(); }
+   uint32_t        getSize(void) const {  return dataCopy_.getSize(); }
+
    /////////////////////////////////////////////////////////////////////////////
-   OutPoint createOutPoint(int txOutIndex);
-   void serialize(BinaryWriter & bw);
-   BinaryData serialize(void);
+   uint32_t           getVersion(void)   const { return *(uint32_t*)(dataCopy_.getPtr()+4);}
+   uint32_t           getNumTxIn(void)   const { return offsetsTxIn_.size()-1;}
+   uint32_t           getNumTxOut(void)  const { return offsetsTxOut_.size()-1;}
+   BinaryData         getThisHash(void)  const;
+   bool               isMainBranch(void) const;
+   bool               isInitialized(void) const { return isInitialized_; }
+
+
+   uint32_t           getTxInOffset(uint32_t i) const  { return offsetsTxIn_[i]; }
+   uint32_t           getTxOutOffset(uint32_t i) const { return offsetsTxOut_[i]; }
+
+   static Tx          createFromStr(BinaryData const & bd) {return Tx(bd);}
+
+   TxRef*             getTxRefPtr(void) const { return txRefPtr_; }
+   void               setTxRefPtr(TxRef* ptr) { txRefPtr_ = ptr; }
+   BlockHeader*       getHeaderPtr(void)  const { return headerPtr_; }
+   void               setHeaderPtr(BlockHeader* bh)   { headerPtr_ = bh; }
+
+   // This is to identify whether this tx has an counterpart on disk
+   // If not, it's just a floater (probably zero-conf tx) and we need
+   // to avoid using the txRefPtr_
+   bool               isTethered(void) {return txRefPtr_!=NULL; }
+
+   /////////////////////////////////////////////////////////////////////////////
+   BinaryData         serialize(void) const    { return dataCopy_; }
+
+   /////////////////////////////////////////////////////////////////////////////
    void unserialize(uint8_t const * ptr);
-   void unserialize(BinaryReader & br);
+   void unserialize(BinaryData const & str) { unserialize(str.getPtr()); }
+   void unserialize(BinaryDataRef const & str) { unserialize(str.getPtr()); }
    void unserialize(BinaryRefReader & brr);
-   void unserialize(BinaryData const & str);
-   void unserialize(BinaryDataRef const & str);
+
+   uint32_t    getLockTime(void) const { return lockTime_; }
+   uint64_t    getSumOfOutputs(void);
+
+
+   BinaryData getRecipientForTxOut(uint32_t txOutIndex);
+
+   /////////////////////////////////////////////////////////////////////////////
+   // These are not pointers to persistent object, these methods actually 
+   // CREATES the TxIn/TxOut.  But the construction is fast, so it's
+   // okay to do it on the fly
+   TxIn   getTxIn(int i);
+   TxOut  getTxOut(int i);
+
+   /////////////////////////////////////////////////////////////////////////////
+   uint32_t  getBlockTimestamp(void);
+   uint32_t  getBlockHeight(void);
+   uint32_t  getBlockTxIndex(void);
+
+   /////////////////////////////////////////////////////////////////////////////
+   void pprint(ostream & os=cout, int nIndent=0, bool pBigendian=true);
+   void pprintAlot(ostream & os=cout);
+
+
+   
 
 
 private:
+   // Full copy of the serialized tx
+   BinaryData    dataCopy_;
+   bool          isInitialized_;
+
    uint32_t      version_;
-   uint32_t      numTxIn_;
-   uint32_t      numTxOut_;
-   vector<TxIn>  txInList_;
-   vector<TxOut> txOutList_;
    uint32_t      lockTime_;
    
    // Derived properties - we expect these to be set after construct/copy
    BinaryData    thisHash_;
-   uint32_t      nBytes_;
+
+   // Will always create TxIns and TxOuts on-the-fly; only store the offsets
+   vector<uint32_t> offsetsTxIn_;
+   vector<uint32_t> offsetsTxOut_;
 
    // To be calculated later
-   BlockHeader*     headerPtr_;
-   BlockHeaderRef*  headerRefPtr_;
+   BlockHeader*  headerPtr_;
+   TxRef*        txRefPtr_;
 };
+
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+class TxRef
+{
+   friend class BlockDataManager_FileRefs;
+   friend class Tx;
+
+public:
+   /////////////////////////////////////////////////////////////////////////////
+   TxRef(void) : headerPtr_(NULL) {}
+   TxRef(FileDataPtr fdr) : blkFilePtr_(fdr), headerPtr_(NULL) {}
+     
+   /////////////////////////////////////////////////////////////////////////////
+   BinaryData         getThisHash(void) const;
+   Tx                 getTxCopy(void) const;
+   //bool               isInitialized(void)  const { return blkFilePtr_!=NULL; }
+   bool               isMainBranch(void)  const;
+   uint32_t           getSize(void) const {  return blkFilePtr_.getNumBytes(); }
+
+   /////////////////////////////////////////////////////////////////////////////
+   BlockHeader*       getHeaderPtr(void)  const { return headerPtr_; }
+   void               setHeaderPtr(BlockHeader* bh)   { headerPtr_ = bh; }
+   FileDataPtr        getBlkFilePtr(void) { return blkFilePtr_; }
+   void               setBlkFilePtr(FileDataPtr const & b) { blkFilePtr_ = b; }
+
+   /////////////////////////////////////////////////////////////////////////////
+   BinaryData         serialize(void) const { return blkFilePtr_.getDataCopy(); }
+
+   /////////////////////////////////////////////////////////////////////////////
+   uint32_t           getBlockTimestamp(void) const;
+   uint32_t           getBlockHeight(void) const;
+   uint32_t           getBlockTxIndex(void) const;
+
+   /////////////////////////////////////////////////////////////////////////////
+   void               pprint(ostream & os=cout, int nIndent=0) const;
+
+private:
+   FileDataPtr        blkFilePtr_;
+   BlockHeader*       headerPtr_;
+};
+
 
 
 
@@ -312,9 +486,9 @@ class UnspentTxOut
 {
 public:
    UnspentTxOut(void);
-   UnspentTxOut(TxOutRef & txout, uint32_t blknum) { init(txout, blknum);}
+   UnspentTxOut(TxOut & txout, uint32_t blknum) { init(txout, blknum);}
 
-   void init(TxOutRef & txout, uint32_t blknum);
+   void init(TxOut & txout, uint32_t blknum);
 
    BinaryData   getTxHash(void) const      { return txHash_;     }
    uint32_t     getTxOutIndex(void) const  { return txOutIndex_; }

@@ -70,6 +70,9 @@
 
 #define TIMER_READ_SEC(NAME) UniversalTimer::instance().read(NAME)
 
+// STARTS A TIMER THAT STOPS WHEN IT GOES OUT OF SCOPE
+#define SCOPED_TIMER(NAME) TimerToken TT(NAME)
+
 using namespace std;
 
 class UniversalTimer
@@ -122,6 +125,48 @@ private:
    map<string, string> call_group_;
    string most_recent_key_;
 };
+
+
+// Create a token at the beginning of a function, and it will stop the timer
+// when that token goes out of scope.
+//
+// The UniversalTimer is very fast, but not as fast as something things you 
+// want to time.  It is recommended not to add a TimerToken to every method,
+// unless you anticipate it will take more than 1 ms.  I think it operates 
+// on the order of microsecs, so anything shorter than 1 ms may actually be
+// inflated by the timer call itself.
+class TimerToken
+{
+public:
+   TimerToken(string name) 
+   { 
+      timerName_ = name; 
+      UniversalTimer::instance().start(timerName_);
+
+      #ifdef _DEBUG
+         cout << "Executing " << timerName_.c_str() << endl;
+      #endif
+   }
+
+
+   ~TimerToken(void)
+   { 
+      UniversalTimer::instance().stop(timerName_);
+      lastTiming_ = UniversalTimer::instance().read(timerName_);
+      #ifdef _DEBUG
+         cout << "Finishing " << timerName_.c_str()
+              << "(" << lastTiming_*1000.0 << " ms)" << endl;
+      #endif
+   }
+
+private: 
+   string timerName_;
+   double lastTiming_;
+};
+
+
+
+
 #endif
 
 
