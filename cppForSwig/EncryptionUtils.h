@@ -449,7 +449,7 @@ public:
 
    BinaryData ECMultiplyPoint(BinaryData const & scalar, 
                               BinaryData const & ecPoint,
-                              bool compressOutput);
+                              bool compressOutput=true);
 
    SecureBinaryData ECMultiplyPoint(SecureBinaryData const & scalar, 
                                     SecureBinaryData const & ecPoint,

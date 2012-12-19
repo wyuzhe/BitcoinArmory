@@ -1067,17 +1067,15 @@ SecureBinaryData HDWalletCrypto::HMAC_SHA512(SecureBinaryData key,
 
 
 ////////////////////////////////////////////////////////////////////////////////
-// In the HDWallet gist by Sipa, CKD takes two inputs:
-//    1.  (Key, Chain) pair         (parent extended key)
+// In the HDWallet gist by Pieter, CKD takes two inputs:
+//    1.  Extended Key  (priv/pub key, chaincode)
 //    2.  Index n
 //
-// Here, we supply a private key as the first arg if we are computing 
-// the child of a private key.  Pass in a zero-length SBD object if 
-// only computing child of a public key.
+// The ExtendedKey class accommodates full private-included ExtendedKey objects
+// or public-key-only.  You can pass in either one here, and it will derive the
+// child whatever key data is there.
 //
-// We assume that the system is Little-Endian.  
-ExtendedKey HDWalletCrypto::ChildKeyDeriv( ExtendedKey const & extKey,
-                                           uint32_t n)
+ExtendedKey HDWalletCrypto::ChildKeyDeriv(ExtendedKey const & extKey, uint32_t n)
 {
 
    // Pad the integer to 4-bytes
@@ -1087,37 +1085,37 @@ ExtendedKey HDWalletCrypto::ChildKeyDeriv( ExtendedKey const & extKey,
    assert(extKey.isInitialized());
 
    // Make a copy of the public key, make sure it's uncompressed
-   SecureBinaryData uncomprKey = CryptoECDSA().UncompressPoint(extKey.getPub());
+   SecureBinaryData comprKey = CryptoECDSA().CompressPoint(extKey.getPub());
 
-   // Append the 32-byte index number to the uncompressed public key
-   uncomprKey.append(binaryN);
+   // Append the four-byte index number to the uncompressed public key
+   comprKey.append(binaryN);
 
    // Apply HMAC to get the child pieces
-   SecureBinaryData I = HMAC_SHA512(extKey.getChain(), uncomprKey);
+   SecureBinaryData I = HMAC_SHA512(extKey.getChain(), comprKey);
+
+   // Split the HMAC into the two pieces.
    SecureBinaryData I_left(  I.getPtr(),     32 );
    SecureBinaryData I_right( I.getPtr()+32,  32 );
 
    SecureBinaryData newKey;
    SecureBinaryData parFinger = extKey.getFingerprint();
 
-   // The new keys should have an index list one bigger
-   list<uint32_t> newList = extKey.getIndicesList();
-   newList.push_back(n);
+   // Index list is an array of n-values needed to get from the master node to
+   // this one.  The new keys should have an index list one bigger. 
+   list<uint32_t> idxList = extKey.getIndicesList();
+   idxList.push_back(n);
 
    if(extKey.hasPriv())
    {
       // This computes the private key, and lets ExtendedKey compute pub
       newKey = SecureBinaryData(CryptoECDSA().ECMultiplyScalars(I_left, extKey.getPriv()));
-      return ExtendedKey().CreateFromPrivate(newKey, I_right, parFinger, newList);
+      return ExtendedKey().CreateFromPrivate(newKey, I_right, parFinger, idxList);
    }
    else
    {
       // Compress the output if the we received compressed input
-      bool doCompress = (extKey.getPub().getSize()==33);
-      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyPoint(I_left, 
-                                                              extKey.getPub(), 
-                                                              doCompress));
-      return ExtendedKey().CreateFromPublic(newKey, I_right, parFinger, newList);
+      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyPoint(I_left, extKey.getPub()));
+      return ExtendedKey().CreateFromPublic(newKey, I_right, parFinger, idxList);
    }
 }
 
