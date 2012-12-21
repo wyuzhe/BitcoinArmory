@@ -320,10 +320,10 @@ SecureBinaryData CryptoAES::EncryptCFB(SecureBinaryData & data,
    // Caller can supply their own IV/entropy, or let it be generated here
    // (variable "iv" is a reference, so check it on the way out)
    if(iv.getSize() == 0)
-      iv = SecureBinaryData().GenerateRandom(BTC_AES::BLOCKSIZE);
+      iv = SecureBinaryData().GenerateRandom(CRYPTO_AES::BLOCKSIZE);
 
 
-   BTC_CFB_MODE<BTC_AES>::Encryption aes_enc( (byte*)key.getPtr(), 
+   CRYPTO_CFB_MODE<CRYPTO_AES>::Encryption aes_enc( (byte*)key.getPtr(), 
                                                      key.getSize(), 
                                               (byte*)iv.getPtr());
 
@@ -354,7 +354,7 @@ SecureBinaryData CryptoAES::DecryptCFB(SecureBinaryData & data,
 
    SecureBinaryData unencrData(data.getSize());
 
-   BTC_CFB_MODE<BTC_AES>::Decryption aes_enc( (byte*)key.getPtr(), 
+   CRYPTO_CFB_MODE<CRYPTO_AES>::Decryption aes_enc( (byte*)key.getPtr(), 
                                                      key.getSize(), 
                                               (byte*)iv.getPtr());
 
@@ -389,10 +389,10 @@ SecureBinaryData CryptoAES::EncryptCBC(SecureBinaryData & data,
    // Caller can supply their own IV/entropy, or let it be generated here
    // (variable "iv" is a reference, so check it on the way out)
    if(iv.getSize() == 0)
-      iv = SecureBinaryData().GenerateRandom(BTC_AES::BLOCKSIZE);
+      iv = SecureBinaryData().GenerateRandom(CRYPTO_AES::BLOCKSIZE);
 
 
-   BTC_CBC_MODE<BTC_AES>::Encryption aes_enc( (byte*)key.getPtr(), 
+   CRYPTO_CBC_MODE<CRYPTO_AES>::Encryption aes_enc( (byte*)key.getPtr(), 
                                                      key.getSize(), 
                                               (byte*)iv.getPtr());
 
@@ -422,7 +422,7 @@ SecureBinaryData CryptoAES::DecryptCBC(SecureBinaryData & data,
 
    SecureBinaryData unencrData(data.getSize());
 
-   BTC_CBC_MODE<BTC_AES>::Decryption aes_enc( (byte*)key.getPtr(), 
+   CRYPTO_CBC_MODE<CRYPTO_AES>::Decryption aes_enc( (byte*)key.getPtr(), 
                                                      key.getSize(), 
                                               (byte*)iv.getPtr());
 

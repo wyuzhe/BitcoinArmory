@@ -12598,8 +12598,16 @@ class PyBtcAddress(object):
 
 
 
-class EncryptedInfoEntry(object):
+
+
+################################################################################
+# Let's take a shot at using inheritance for each of these data types
+class WalletEntry(object):
    """
+   The wallets will be made up of IFF/RIFF entries. 
+
+   The following comments are for comments & P2SH scripts:
+
    The goal of this object type is to allow for comments/P2SH scripts to be
    "lightly" encrypted before including them in a regularly-backed-up file.
 
@@ -12621,12 +12629,87 @@ class EncryptedInfoEntry(object):
    blockchain ... they must have access to at least the watching-only wlt).
    """
 
-   ENTRYTYPE = enum('SCRIPT', 'COMMENT')
+   entryType = 'VIRTUALBASE'
+   entryCode = 'ERRR'
 
-   def __init__(self):
-      self.entryType         = None
-      self.parentFingerprint = None
 
+   WLTENTRYCLASS = { 'ADDR': WalletEntryAddress,
+                     'ROOT': WalletEntryRootObj,
+                     'LABL': WalletEntryLabel,
+                     'P2SH': WalletEntryP2SHScript,
+                     'ERAS': WalletEntryDeleted, 
+                     'RLAT': WalletEntryRelationship }
+                     'CKEY': WalletEntryCryptoKey }
+
+   def __init__(self, wlt):
+      self.wltRef  = None
+      self.root160 = None
+      self.wltByteLoc = -1
+
+
+   def createWalletUpdateTuple(self, wltUpdateType, startByte=-1):
+
+      self.wltFileLoc = whereWeJustPutIt
+       
+
+   def fullSerialize(self):
+      LOGERROR('Serialize method needs to be overridden in child class')
+      pass
+
+   def fullUnserialize(self):
+      LOGERROR('Unserialize method needs to be overridden in child class')
+
+   def readFromOpenFile(self, openFile):
+      estart = openFile.tell()
+      ecode  = openFile.read(4) 
+      ebytes = openFile.read(4) 
+      echk   = openFile.read(4) 
+      edata  = openFile.read(ebytes) 
+
+      edata = verifyChecksum(edata, echk)
+      if len(theData)==0:
+         LOGERROR('Error reading wallet file entry starting at byte %d' % start)
+         return None
+   
+      if not WLTENTRYCLASS.has_key(ecode):
+         LOGWARN('Unrecognized entry in wallet file: %s' % ecode)
+
+      wltEntry = WLTENTRYCLASS[ecode]().unserialize(edata)
+      wltEntry.wltByteLoc = estart
+
+
+class WalletEntryAddress(WalletEntry):
+   entryType = 'PyBtcAddress'
+   entryCode = 'ADDR'
+
+   def __init__(self, wltRef, pyaddr):
+      super(WalletEntryADDR, self).__init__(wltRef)
+      self.pyAddr = pyaddr
+
+
+   def serialize(self):
+      """
+      May use this extra serialize/unserialize layer, to later 
+      encrypt or decrypt all address data
+      """
+      return self.pyAddr.serialize()
+
+   def unserialize(self, theData):
+      self.pyAddr.unserialize(theData)
+      return self
+      
+
+   def getAddr160(self):
+      return self.pyAddr.getAddr160()
+
+   def getParent160(self):
+
+   def getChaincode(self):
+      return self.pyAddr.getChaincode()
+   
+
+class WalletEntryRootObj(WalletEntry):
+   entryType = 'PyBtcAddress'
 
 
 class PyBtcWallet(object):
