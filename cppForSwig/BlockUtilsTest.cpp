@@ -1583,21 +1583,23 @@ void TestHMAC(void)
 
 
 
-   SecureBinaryData priv(  ckdTestVectors[0] );
-   SecureBinaryData pub(   ckdTestVectors[1] );
-   SecureBinaryData chain( ckdTestVectors[2] );
+   //SecureBinaryData priv(  ckdTestVectors[0] );
+   //SecureBinaryData pub(   ckdTestVectors[1] );
+   //SecureBinaryData chain( ckdTestVectors[2] );
 
    //////////////////////////////////////////////////////////////////////////
    // Start with an extended PRIVATE key
-   ExtendedKey sipaPriv = ExtendedKey().CreateFromPrivate(priv, chain);
-   ExtendedKey sipaPub  = ExtendedKey().CreateFromPublic(pub,  chain);
+   SecureBinaryData seed = SecureBinaryData::CreateFromHex("ff000000000000000000000000000000");
+
+   //ExtendedKey sipaPriv = ExtendedKey().CreateFromPrivate(priv, chain);
+   //ExtendedKey sipaPub  = ExtendedKey().CreateFromPublic(pub,  chain);
+   ExtendedKey sipaPriv = HDWalletCrypto().ConvertSeedToMasterKey(seed);
+   ExtendedKey sipaPub  = sipaPriv.makePublicCopy();
 
    cout << "********************************************************************************"<<endl;
    cout << "PRIVATE key extensions" << endl;
    sipaPriv.debugPrint();
-   sipaPriv = HDWalletCrypto().ChildKeyDeriv(sipaPriv, 0);
-   sipaPriv.debugPrint();
-   for(uint32_t i=1; i<16; i++)
+   for(uint32_t i=0; i<16; i++)
    {
       sipaPriv = HDWalletCrypto().ChildKeyDeriv(sipaPriv, pow(2,i)-1);
       sipaPriv.debugPrint();
@@ -1606,9 +1608,7 @@ void TestHMAC(void)
    cout << "********************************************************************************"<<endl;
    cout << "PUBLIC key extensions" << endl;
    sipaPub.debugPrint();
-   sipaPub = HDWalletCrypto().ChildKeyDeriv(sipaPub, 0);
-   sipaPub.debugPrint();
-   for(uint32_t i=1; i<16; i++)
+   for(uint32_t i=0; i<16; i++)
    {
       sipaPub = HDWalletCrypto().ChildKeyDeriv(sipaPub, pow(2,i)-1);
       sipaPub.debugPrint();

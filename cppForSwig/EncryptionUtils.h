@@ -504,6 +504,10 @@ public:
                                  SecureBinaryData const & parentFP=SecureBinaryData(),
                                  list<uint32_t> parentTreeIdx=list<uint32_t>());
 
+   
+   void deletePrivateKey(void);
+   ExtendedKey makePublicCopy(void);
+
    bool hasPriv(void) const        {return ( privKey_.getSize() > 0 );}
    bool hasPub(void) const         {return (  pubKey_.getSize() > 0 );}
    bool hasChain(void) const       {return (   chain_.getSize() > 0 );}
@@ -562,6 +566,7 @@ public:
    ExtendedKey ChildKeyDeriv(ExtendedKey const & extKey,
                              uint32_t n);
 
+   ExtendedKey ConvertSeedToMasterKey(SecureBinaryData const & seed);
 };
 
 

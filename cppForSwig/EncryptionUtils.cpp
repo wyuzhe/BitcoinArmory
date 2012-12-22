@@ -953,7 +953,7 @@ ExtendedKey ExtendedKey::CreateFromPrivate(
 {
    ExtendedKey ek;
    ek.privKey_ = priv.copy();
-   ek.pubKey_ = CryptoECDSA().ComputePublicKey(ek.privKey_, false);
+   ek.pubKey_ = CryptoECDSA().ComputePublicKey(ek.privKey_, true);
    ek.chain_ = chain.copy();
    ek.parentFingerprint_ = parentFP.copy();
    ek.indicesList_ = parentTreeIdx;
@@ -977,6 +977,24 @@ ExtendedKey ExtendedKey::CreateFromPublic(
    ek.indicesList_ = parentTreeIdx;
    return ek;
 }
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+void ExtendedKey::deletePrivateKey(void)
+{
+   privKey_.destroy(); 
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+ExtendedKey ExtendedKey::makePublicCopy(void)
+{
+   ExtendedKey ekout = copy();
+   ekout.deletePrivateKey();
+   return ekout;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1121,6 +1139,15 @@ ExtendedKey HDWalletCrypto::ChildKeyDeriv(ExtendedKey const & extKey, uint32_t n
 
 
 
+ExtendedKey HDWalletCrypto::ConvertSeedToMasterKey(SecureBinaryData const & seed)
+{
+   SecureBinaryData constKey = SecureBinaryData("Bitcoin seed");
+   SecureBinaryData bytes64 = HMAC_SHA512(constKey, seed);
+
+   SecureBinaryData KLeft (bytes64.getPtr(),    32);
+   SecureBinaryData KRight(bytes64.getPtr()+32, 32);
+   return ExtendedKey().CreateFromPrivate(KLeft, KRight);
+}
 
 
 
