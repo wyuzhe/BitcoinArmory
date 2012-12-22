@@ -520,6 +520,7 @@ public:
    SecureBinaryData         getFingerprint(void) const;
    SecureBinaryData const & getParentFingerprint(void) const { return parentFingerprint_;}
 
+   BinaryData               getHash160(void) const;
    uint32_t                 getDepth(void) const  {return indicesList_.size();}
    uint32_t                 getIndex(void) const;
    vector<uint32_t>         getIndicesVect(void) const;

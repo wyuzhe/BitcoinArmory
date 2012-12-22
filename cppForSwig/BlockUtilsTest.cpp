@@ -1583,14 +1583,13 @@ void TestHMAC(void)
 
 
 
-   //////////////////////////////////////////////////////////////////////////
-   // Using the test vectors created by sipa.  We only need to compare public
-   // keys at each step, because any errors in those would cascade and cause
-   // everything else to be incorrect.
+   // Using the test vectors created by sipa, starting with only a 16-byte seed
    SecureBinaryData seed = SecureBinaryData::CreateFromHex("ff000000000000000000000000000000");
 
-
-   SecureBinaryData sipaPubTestOut[] = {
+   // We only need to compare public keys at each step, because any errors in 
+   // those would cascade and cause everything else to be incorrect.
+   // Remember BIP 32 says all steps must use compressed public keys.
+   SecureBinaryData sipaPubKeyAnswers[] = {
       SecureBinaryData::CreateFromHex("02b530da16bbff1428c33020e87fc9e699cc9c753a63b8678ce647b7457397acef"),
       SecureBinaryData::CreateFromHex("032ad2472db0e9b1706c816a93dc55c72ef2ff339818718b676a563e063afa3f38"),
       SecureBinaryData::CreateFromHex("02655643c6fba3edf1139d59261590e5b358cbf19a063c88448f01558dd4fbf2c7"),
@@ -1609,37 +1608,34 @@ void TestHMAC(void)
       SecureBinaryData::CreateFromHex("032af575cb4fa722febb29ea3a7d8c9efd9dc410fcf86153c91b57c484c1d20313"),
       SecureBinaryData::CreateFromHex("031d55c55998f29a15fe38b0d466347df7519092ef8bc48193395167ff28cf99af") };
 
-   //ExtendedKey sipaPriv = ExtendedKey().CreateFromPrivate(priv, chain);
-   //ExtendedKey sipaPub  = ExtendedKey().CreateFromPublic(pub,  chain);
-   ExtendedKey sipaPriv = HDWalletCrypto().ConvertSeedToMasterKey(seed);
-   ExtendedKey sipaPub  = sipaPriv.makePublicCopy();
+   // Master Key comes from HMAC_SHA512 using "Bitcoin seed" as the "key"
+   ExtendedKey computedPrivEK = HDWalletCrypto().ConvertSeedToMasterKey(seed);
+   ExtendedKey computedPubEK  = computedPrivEK.makePublicCopy();
 
    cout << "********************************************************************************"<<endl;
-   cout << "PRIVATE key extensions" << endl;
-   sipaPriv.debugPrint();
-   for(uint32_t i=0; i<16; i++)
+   cout << "PRIVATE key chaining" << endl;
+   for(uint32_t i=0; i<=16; i++)
    {
-      sipaPriv.debugPrint();
-      if(sipaPriv.getPub()==sipaPubTestOut[i])
+      if(computedPrivEK.getPub()==sipaPubKeyAnswers[i])
          cout << "___PASSED___" << endl;
       else
          cout << "***FAILED***" << endl;
+      computedPrivEK.debugPrint();
 
-      sipaPriv = HDWalletCrypto().ChildKeyDeriv(sipaPriv, pow(2,i)-1);
+      computedPrivEK = HDWalletCrypto().ChildKeyDeriv(computedPrivEK, pow(2,i)-1);
    }
 
    cout << "********************************************************************************"<<endl;
-   cout << "PUBLIC key extensions" << endl;
-   sipaPub.debugPrint();
-   for(uint32_t i=0; i<16; i++)
+   cout << "PUBLIC key chaining" << endl;
+   for(uint32_t i=0; i<=16; i++)
    {
-      sipaPub.debugPrint();
-      if(sipaPub.getPub()==sipaPubTestOut[i])
+      if(computedPubEK.getPub()==sipaPubKeyAnswers[i])
          cout << "___PASSED___" << endl;
       else
          cout << "***FAILED***" << endl;
+      computedPubEK.debugPrint();
 
-      sipaPub = HDWalletCrypto().ChildKeyDeriv(sipaPub, pow(2,i)-1);
+      computedPubEK = HDWalletCrypto().ChildKeyDeriv(computedPubEK, pow(2,i)-1);
 
    }
 

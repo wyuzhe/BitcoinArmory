@@ -885,6 +885,16 @@ SecureBinaryData ExtendedKey::getFingerprint(void) const
 
 
 ////////////////////////////////////////////////////////////////////////////////
+BinaryData ExtendedKey::getHash160(void) const
+{
+   if(hasPub())
+      return BtcUtils::getHash160(getPub().getPtr(), getPub().getSize());
+   else
+      return BinaryData(0);
+   
+}
+
+////////////////////////////////////////////////////////////////////////////////
 uint32_t ExtendedKey::getIndex(void) const
 {
    if(indicesList_.size() == 0)
@@ -1015,7 +1025,8 @@ void ExtendedKey::debugPrint(void) const
         << " Parent: " << getParentFingerprint().toHexStr() << endl;
    cout << "Private Key:    " << privKey_.toHexStr() << endl;
    cout << "Public Key:   "   << CryptoECDSA().CompressPoint(pubKey_).toHexStr() << endl;
-   cout << "Chain Code:     " << chain_.toHexStr() << endl << endl;
+   cout << "Chain Code:     " << chain_.toHexStr() << endl;
+   cout << "Hash160:        " << getHash160().toHexStr() << endl << endl;
 }
 
 
