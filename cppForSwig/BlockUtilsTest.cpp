@@ -1583,13 +1583,31 @@ void TestHMAC(void)
 
 
 
-   //SecureBinaryData priv(  ckdTestVectors[0] );
-   //SecureBinaryData pub(   ckdTestVectors[1] );
-   //SecureBinaryData chain( ckdTestVectors[2] );
-
    //////////////////////////////////////////////////////////////////////////
-   // Start with an extended PRIVATE key
+   // Using the test vectors created by sipa.  We only need to compare public
+   // keys at each step, because any errors in those would cascade and cause
+   // everything else to be incorrect.
    SecureBinaryData seed = SecureBinaryData::CreateFromHex("ff000000000000000000000000000000");
+
+
+   SecureBinaryData sipaPubTestOut[] = {
+      SecureBinaryData::CreateFromHex("02b530da16bbff1428c33020e87fc9e699cc9c753a63b8678ce647b7457397acef"),
+      SecureBinaryData::CreateFromHex("032ad2472db0e9b1706c816a93dc55c72ef2ff339818718b676a563e063afa3f38"),
+      SecureBinaryData::CreateFromHex("02655643c6fba3edf1139d59261590e5b358cbf19a063c88448f01558dd4fbf2c7"),
+      SecureBinaryData::CreateFromHex("02a3b9ce007bbcfa0b9ec81779d07413256e72e516d14468a2e21172663376c233"),
+      SecureBinaryData::CreateFromHex("03737b8811cda598ed635621997305e7a84e41c99990b69b88dfb021e74625247a"),
+      SecureBinaryData::CreateFromHex("03bc1a550813b185e61d82a0823636e539dd86adbf591e9d3f91e32a579506c050"),
+      SecureBinaryData::CreateFromHex("03f8d3b8825607daaca137909d9a74c8bb5d667bb06b9be519c2b171f47e6322d2"),
+      SecureBinaryData::CreateFromHex("0322dd499c356165d7cbc6072be77354041b7ff6c7c256130189f829968275cfdc"),
+      SecureBinaryData::CreateFromHex("0288e3cd9838a0d4c09d469befa2ff7fa0bbd2829a24bd8e1b3d3e6a64fe0f5380"),
+      SecureBinaryData::CreateFromHex("0262001d6694e0c02a3fdc95e1e0ca3a2687233bd15145415cc6a4daf4b57c595e"),
+      SecureBinaryData::CreateFromHex("02ea90cfbbeacc9bcd695449a4406fd886b3757774160e3de0d7fb7d9297ff5f1a"),
+      SecureBinaryData::CreateFromHex("026199b74e5d514b0f520c40fc9f3eb9cba965bfa64aa70c435e9db6c7bb5ecd21"),
+      SecureBinaryData::CreateFromHex("02415b0da16af9b210ba5c998b9d07553c33e1c570a34d174728c2211f5a894bf9"),
+      SecureBinaryData::CreateFromHex("0330cb9a20e013cf203a79fc2c15c588019bb1016193f82ddefd28c05552b36503"),
+      SecureBinaryData::CreateFromHex("02d8a3f07e15e34f6a14187907f49e5634080b7de946eb1f27f7979abf2fd54e72"),
+      SecureBinaryData::CreateFromHex("032af575cb4fa722febb29ea3a7d8c9efd9dc410fcf86153c91b57c484c1d20313"),
+      SecureBinaryData::CreateFromHex("031d55c55998f29a15fe38b0d466347df7519092ef8bc48193395167ff28cf99af") };
 
    //ExtendedKey sipaPriv = ExtendedKey().CreateFromPrivate(priv, chain);
    //ExtendedKey sipaPub  = ExtendedKey().CreateFromPublic(pub,  chain);
@@ -1601,8 +1619,13 @@ void TestHMAC(void)
    sipaPriv.debugPrint();
    for(uint32_t i=0; i<16; i++)
    {
-      sipaPriv = HDWalletCrypto().ChildKeyDeriv(sipaPriv, pow(2,i)-1);
       sipaPriv.debugPrint();
+      if(sipaPriv.getPub()==sipaPubTestOut[i])
+         cout << "___PASSED___" << endl;
+      else
+         cout << "***FAILED***" << endl;
+
+      sipaPriv = HDWalletCrypto().ChildKeyDeriv(sipaPriv, pow(2,i)-1);
    }
 
    cout << "********************************************************************************"<<endl;
@@ -1610,9 +1633,21 @@ void TestHMAC(void)
    sipaPub.debugPrint();
    for(uint32_t i=0; i<16; i++)
    {
-      sipaPub = HDWalletCrypto().ChildKeyDeriv(sipaPub, pow(2,i)-1);
       sipaPub.debugPrint();
+      if(sipaPub.getPub()==sipaPubTestOut[i])
+         cout << "___PASSED___" << endl;
+      else
+         cout << "***FAILED***" << endl;
+
+      sipaPub = HDWalletCrypto().ChildKeyDeriv(sipaPub, pow(2,i)-1);
+
    }
+
+
+
+
+
+
 }
 
 
