@@ -1538,19 +1538,19 @@ void TestHMAC(void)
 
       cout << endl << endl;
       cout << "Private-Public Tree Equality Tests:" << endl;
-      allPassed = allPassed && verifyPubKeyMatch(ekprv, ekpub); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_0, ekpub_0); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_1, ekpub_1); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN, ekpub_0_IN); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN_0, ekpub_0_IN_0); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN_1, ekpub_0_IN_1); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN_2, ekpub_0_IN_2); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_EX_0, ekpub_0_EX_0); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_EX_1, ekpub_0_EX_1); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_EX_2, ekpub_0_EX_2); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_1_IN, ekprv_1_IN); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_1_IN_4095, ekprv_1_IN_4095); 
-      allPassed = allPassed && verifyPubKeyMatch(ekprv_1_IN_4bil, ekprv_1_IN_4bil); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv,            ekpub); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0,          ekpub_0); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_1,          ekpub_1); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN,       ekpub_0_IN); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN_0,     ekpub_0_IN_0); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN_1,     ekpub_0_IN_1); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN_2,     ekpub_0_IN_2); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_EX_0,     ekpub_0_EX_0); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_EX_1,     ekpub_0_EX_1); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_EX_2,     ekpub_0_EX_2); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_1_IN,       ekpub_1_IN); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_1_IN_4095,  ekpub_1_IN_4095); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_1_IN_4bil,  ekpub_1_IN_4bil); 
 
 
 
