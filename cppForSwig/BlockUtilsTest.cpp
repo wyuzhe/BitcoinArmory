@@ -1312,9 +1312,17 @@ void TestPointCompression(void)
 
 
 
+bool verifyPubKeyMatch(ExtendedKey const & ek1, ExtendedKey const & ek2)
+{
+   bool isEqual = (ek1.getPub() == ek2.getPub());
+   cout << "   " << (isEqual ? "___PASSED___" : "***FAILED***") << endl;
+   return isEqual;
+}
+
 
 void TestHMAC(void)
 {
+   bool allPassed = true;
 
    BinaryData hmacTestVectors[] = {
 
@@ -1431,7 +1439,9 @@ void TestHMAC(void)
 
       
       if(calc==MAC)
+      {
          cout << "\t___PASSED___" << endl;
+      }
       else
       {
          cout << "Key:  " << key.toHexStr() << endl;
@@ -1440,6 +1450,7 @@ void TestHMAC(void)
          cout << "Calc: " << calc.toHexStr() << endl;
          
          cout << "\t***FAILED***" << endl;
+         allPassed = false;
       }
    }
 
@@ -1527,32 +1538,19 @@ void TestHMAC(void)
 
       cout << endl << endl;
       cout << "Private-Public Tree Equality Tests:" << endl;
-      cout << "   " << (ekprv.getPub()==
-                        ekpub.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_0.getPub()==
-                        ekpub_0.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_1.getPub()==
-                        ekpub_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_0_IN.getPub()==
-                        ekpub_0_IN.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_0_IN_0.getPub()==
-                        ekpub_0_IN_0.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_0_IN_1.getPub()==
-                        ekpub_0_IN_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_0_IN_2.getPub()==
-                        ekpub_0_IN_2.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_0_EX_0.getPub()==
-                        ekpub_0_EX_0.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_0_EX_1.getPub()==
-                        ekpub_0_EX_1.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_0_EX_2.getPub()==
-                        ekpub_0_EX_2.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_1_IN.getPub()==
-                        ekprv_1_IN.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_1_IN_4095.getPub()==
-                        ekprv_1_IN_4095.getPub() ? "___PASSED___" : "***FAILED***") << endl;
-      cout << "   " << (ekprv_1_IN_4bil.getPub()==
-                        ekprv_1_IN_4bil.getPub() ? "___PASSED___" : "***FAILED***") << endl;
+      allPassed = allPassed && verifyPubKeyMatch(ekprv, ekpub); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0, ekpub_0); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_1, ekpub_1); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN, ekpub_0_IN); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN_0, ekpub_0_IN_0); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN_1, ekpub_0_IN_1); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_IN_2, ekpub_0_IN_2); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_EX_0, ekpub_0_EX_0); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_EX_1, ekpub_0_EX_1); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_0_EX_2, ekpub_0_EX_2); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_1_IN, ekprv_1_IN); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_1_IN_4095, ekprv_1_IN_4095); 
+      allPassed = allPassed && verifyPubKeyMatch(ekprv_1_IN_4bil, ekprv_1_IN_4bil); 
 
 
 
@@ -1619,27 +1617,36 @@ void TestHMAC(void)
       if(computedPrivEK.getPub()==sipaPubKeyAnswers[i])
          cout << "___PASSED___" << endl;
       else
+      {
          cout << "***FAILED***" << endl;
+         allPassed = false;
+      }
       computedPrivEK.debugPrint();
 
       computedPrivEK = HDWalletCrypto().ChildKeyDeriv(computedPrivEK, pow(2,i)-1);
    }
 
    cout << "********************************************************************************"<<endl;
-   cout << "PUBLIC key chaining" << endl;
+   cout << "PUBLIC key chaining (no need to print the keys again)" << endl;
    for(uint32_t i=0; i<=16; i++)
    {
       if(computedPubEK.getPub()==sipaPubKeyAnswers[i])
          cout << "___PASSED___" << endl;
       else
+      {
          cout << "***FAILED***" << endl;
-      computedPubEK.debugPrint();
+         allPassed = false;
+      }
 
       computedPubEK = HDWalletCrypto().ChildKeyDeriv(computedPubEK, pow(2,i)-1);
 
    }
 
 
+   if(allPassed)
+      cout << endl << "All tests PASSED!" << endl << endl;
+   else
+      cout << endl << "Some tests failed!" << endl << endl;
 
 
 
