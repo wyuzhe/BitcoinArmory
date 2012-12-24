@@ -48,6 +48,9 @@ if OS_WINDOWS:
    from _winreg import *
 
 
+
+
+
 class ArmoryMainWindow(QMainWindow):
    """ The primary Armory window """
 
@@ -56,6 +59,8 @@ class ArmoryMainWindow(QMainWindow):
       super(ArmoryMainWindow, self).__init__(parent)
 
       TimerStart('MainWindowInit')
+
+
 
       # SETUP THE WINDOWS DECORATIONS
       self.lblLogoIcon = QLabel()
@@ -3700,5 +3705,7 @@ if 1:
    QAPP.setQuitOnLastWindowClosed(True)
    reactor.runReturn()
    os._exit(QAPP.exec_())
+
+
 
 

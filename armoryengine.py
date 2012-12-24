@@ -9322,36 +9322,29 @@ class ArmoryClient(Protocol):
          getdataMsg = PyMessage('getdata')
          for inv in invobj.invList:
             if inv[0]==MSG_INV_BLOCK:
-               # We'll hear about the new block via blk0001.dat... and when
-               # we do (within 5s), we should purge the zero-conf tx list
-               from twisted.internet import reactor
+               if TheBDM.getBDMState()=='Scanning' or \
+                  TheBDM.getTxByHash(inv[1]).isInitialized():
+                  continue
+               getdataMsg.payload.invList.append(inv)
             if inv[0]==MSG_INV_TX:
                if TheBDM.getBDMState()=='Scanning' or \
                   TheBDM.getTxByHash(inv[1]).isInitialized():
                   continue
-               else:
-                  #print 'Requesting new tx data'
-                  getdataMsg.payload.invList.append(inv)
+               getdataMsg.payload.invList.append(inv)
 
          # Now send the full request
          if not TheBDM.getBDMState()=='Scanning':
             self.sendMessage(getdataMsg)
 
       if msg.cmd=='tx':
+         print 'Received new block...'
          pytx = msg.payload.tx
-         #newAlert = self.factory.checkForDoubleBroadcast(pytx)
-         #if newAlert:
-            #print '***!!!*** DOUBLE-BROADCAST DETECTED!'
-            #print '***!!!*** The person who just send you money may be'
-            #print '***!!!*** Attempting to defraud you.  It is especially'
-            #print '***!!!*** important that you wait for 6+ confirmations'
-            #print '***!!!*** before considering this transaction valid!'
-         #else:
          self.factory.func_newTx(pytx)
       if msg.cmd=='block':
-         # We don't care much about blocks right now --  We will find
-         # out about them when the Satoshi client updates blk0001.dat
-         pass
+         print 'Received new block...'
+         pyHeader = msg.payload.header
+         pyTxList = msg.payload.txList
+         self.factory.func_newBlock(pyHeader, pyTxList)
                   
 
    ############################################################
@@ -9418,7 +9411,6 @@ class ArmoryClientFactory(ReconnectingClientFactory):
    recipients but the same inputs.  
    """
    protocol = ArmoryClient
-   doubleBroadcastAlerts = {}  #   map[Addr160]  = txHash
    lastAlert = 0
 
    #############################################################################
@@ -9427,13 +9419,12 @@ class ArmoryClientFactory(ReconnectingClientFactory):
                 func_loseConnect=None, \
                 func_madeConnect=None, \
                 func_newTx=None, \
-                func_doubleSpendAlert=None):
+                func_newBlock=None):
       """
       Initialize the ReconnectingClientFactory with a deferred for when the handshake 
       finishes:  there should be only one handshake, and thus one firing 
       of the handshake-finished callback
       """
-      self.doubleBroadcastAlerts = {}
       self.lastAlert = 0
       self.deferred_handshake   = forceDeferred(def_handshake)
       self.fileMemPool = os.path.join(ARMORY_HOME_DIR, 'mempool.bin')
@@ -9446,8 +9437,8 @@ class ArmoryClientFactory(ReconnectingClientFactory):
       #         doing more OOP/deferreds/etc
       self.func_loseConnect = func_loseConnect
       self.func_madeConnect = func_madeConnect
-      self.func_doubleSpendAlert = func_doubleSpendAlert
       self.func_newTx = func_newTx
+      self.func_newBlock = func_newBlock
 
       self.proto = None
 
@@ -9517,13 +9508,6 @@ class ArmoryClientFactory(ReconnectingClientFactory):
       LOGERROR('***Initial connection to Satoshi client failed!  Retrying...')
       ReconnectingClientFactory.connectionFailed(self, protoObj, reason)
 
-
-   #############################################################################
-   #def checkForTx(self, txHash):
-      #if self.proto:
-         #self.proto.sendTx(pytxObj)
-      #else:
-         #raise ConnectionError, 'Connection to localhost DNE.'
       
       
 
@@ -9550,12 +9534,11 @@ class FakeClientFactory(ReconnectingClientFactory):
    to be able to use the same calls
    """
    #############################################################################
-   doubleBroadcastAlerts = {}  #   map[Addr160]  = txHash
    def __init__(self, \
                 def_handshake=None, \
                 func_loseConnect=None, \
                 func_newTx=None, \
-                func_doubleSpendAlert=None): pass
+                func_newBlock=None): pass
    def addTxToMemoryPool(self, pytx): pass
    def handshakeFinished(self, protoObj): pass
    def checkForDoubleBroadcast(self, pytxObj): pass
