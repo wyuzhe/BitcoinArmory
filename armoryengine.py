@@ -9337,13 +9337,13 @@ class ArmoryClient(Protocol):
             self.sendMessage(getdataMsg)
 
       if msg.cmd=='tx':
-         print 'Received new block...'
          pytx = msg.payload.tx
+         print 'Received new tx...', binary_to_hex(pytx.getHash(), BIGENDIAN)
          self.factory.func_newTx(pytx)
       if msg.cmd=='block':
-         print 'Received new block...'
          pyHeader = msg.payload.header
          pyTxList = msg.payload.txList
+         print 'Received new block...', binary_to_hex(pyHeader.getHash(), BIGENDIAN)
          self.factory.func_newBlock(pyHeader, pyTxList)
                   
 

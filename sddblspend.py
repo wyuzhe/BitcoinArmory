@@ -10,7 +10,12 @@ from twisted.internet.defer import Deferred
 #
 # SATOSHI-DICE DOUBLE-SPEND DETECTION BRANCH CODE
 # Want to try to detect double-spends made to these address.
-SDADDRSET = set([
+if USE_TESTNET:
+   SDADDRSET = set([
+   '', \
+   '' ])
+else:
+   SDADDRSET = set([
    '1dice9wVtrKZTBbAZqz1XiTmboYyvpD3t', \
    '1diceDCd27Cc22HV3qPNZKwGnZ8QwhLTc', \
    '1dicegEArYHgbwQZhvr5G9Ah2s7SFuW1y', \
@@ -38,16 +43,16 @@ SDADDRSET = set([
    '1dice2pxmRZrtqBVzixvWnxsMa7wN2GCK', \
    '1dice1Qf4Br5EYjj9rnHWqgMVYnQWehYG', \
    '1dice1e6pdhLzzWQq7yMidf6j8eAg7pkY' ])
-SDHASH160SET = set([addrStr_to_hash160(a) for a in self.SDADDRSET])
+SDHASH160SET = set([addrStr_to_hash160(a) for a in SDADDRSET])
 #
 #
 ##########################################################################
 ##########################################################################
 
+b2h = lambda x: binary_to_hex(x, BIGENDIAN)
 
-zeroConfTxMap = {}
-thisTxSDBets = set([])
-allSDRelevantTx = set([])
+zcConfTxMap = {}
+zcSDBets = set([])
 mapOutPointAffectsBet  = {}
 mapOutPointSpentInTxID = {}
 mapOutPointAffectsVal  = {}
@@ -55,11 +60,14 @@ mapOutPointAffectsVal  = {}
 def newTxFunc(pytxObj):
    totalVal = 0
    thisTxHash = pytxObj.getHash()
-   zeroConfTxMap[thisTxHash] = pytxObj.serialize()
+   thisTxSDBets = set([])
+   zcConfTxMap[thisTxHash] = pytxObj.serialize()
    for output in pytxObj.outputs:
       # Check if any outputs are bets to SD
       try:
          if TxOutScriptExtractAddr160(output.binScript) in SDHASH160SET:
+            if len(thisTxSDBets)==0:
+               print 'Bet:', ' '*13, b2h(thisTxHash), coin2str(output.value)
             thisTxSDBets.add(thisTxHash)
             totalVal += output.value
       except:
@@ -74,15 +82,15 @@ def newTxFunc(pytxObj):
       # as opposed to the SD bet that is ultimately affected by this one
       itsOwnTxHash = thisTxSDBets.pop()
       affectsBetTxHash = thisTxHash
-      if zeroConfTxMap.has_key(itsOwnTxHash):
-         allSDRelevantTx.add(itsOwnTxHash)
-         thisTx = PyTx().unserialize(zeroConfTxMap[itsOwnTxHash])
+      if zcConfTxMap.has_key(itsOwnTxHash):
+         zcSDBets.add(itsOwnTxHash)
+         thisTx = PyTx().unserialize(zcConfTxMap[itsOwnTxHash])
          for inp in thisTx.inputs:
             op = inp.outpoint
             mapOutPointSpentInTxID[op.serialize()] = itsOwnTxHash
             mapOutPointAffectsBet[op.serialize()]  = affectsBetTxHash
             mapOutPointAffectsVal[op.serialize()]  = totalVal
-            if zeroConfTxMap.has_key(op.txHash):
+            if zcConfTxMap.has_key(op.txHash):
                thisTxSDBets.add(op.txHash)
          
 
@@ -92,17 +100,19 @@ def newBlockFunc(pyHeader, pyTxList):
    skipSet = set([])
    for tx in pyTxList:
       txHash = tx.getHash()
-      if txHash in allSDRelevantTx:
-         allSDRelevantTx.remove(txHash)
+      if txHash in zcSDBets:
+         print 'Bet made it into the blockchain: ', b2h(txHash)
+         zcSDBets.remove(txHash)
          skipSet.add(txHash)
          for inp in tx.inputs:
             opstr = inp.outpoint.serialize()
             del(mapOutPointSpentInTxID[opstr])
             del(mapOutPointAffectsBet[opstr])
+            del(mapOutPointAffectsVal[opstr])
 
-      if txHash in zeroConfTxMap:
+      if txHash in zcConfTxMap:
          skipSet.add(txHash)
-         del(zeroConfTxMap[txHash])
+         del(zcConfTxMap[txHash])
 
    # Next, look for tx spending outputs which an SD-bet depends on
    for tx in pyTxList:
@@ -111,32 +121,27 @@ def newBlockFunc(pyHeader, pyTxList):
          continue
 
       # These are the surprise tx in the blockchain for which we didn't see ZC tx
+      print 'Surprise!', 
       for inp in tx.inputs:
          # Search for OutPoints being spent that would invalidate an SD bet
          op = inp.outpoint
          if mapOutPointSpentInTxID.has_key(op.serialize()):
-            with f as open('invalidated_bets.txt', 'a'):
-               txHexInvalid0 = binary_to_hex(mapOutPointSpentInTxID[op.serialize()], endOut=BIGENDIAN)
-               txHexInvalid1 = binary_to_hex(mapOutPointAffectsBet[op.serialize()], endOut=BIGENDIAN)
+            with open('invalidated_bets.txt', 'a') as f:
+               txHexInvalid0 = b2h(mapOutPointSpentInTxID[op.serialize()])
+               txHexInvalid1 = b2h(mapOutPointAffectsBet[op.serialize()])
                betVal        = mapOutPointAffectsVal[op.serialize()]
-               f.write('RightNow: %s; TxInvalid: %s; BetInvalid: %s; AmtInvalid: %s\n' % \
-                     (unixTimeToFormatStr(RightNow()), txHexInvalid0, txHexInvalid1, coin2str(betVal)))
+               s = 'RightNow: %s; TxInvalid: %s; BetInvalid: %s; AmtInvalid: %s\n' % \
+                     (unixTimeToFormatStr(RightNow()), txHexInvalid0, txHexInvalid1, coin2str(betVal))
+               f.write(s)
+               print s
                
-               # Remove the invalidated tx
-               if txHexInvalid0 in zeroConfTxMap:    del(zeroConfTxMap[txHexInvalid0])
-               if txHexInvalid0 in allSDRelevantTx:  allSDRelevantTx.remove(txHexInvalid0)
-               if txHexInvalid1 in zeroConfTxMap:    del(zeroConfTxMap[txHexInvalid1])
-               if txHexInvalid1 in allSDRelevantTx:  allSDRelevantTx.remove(txHexInvalid1)
+            # Remove the invalidated tx
+            if txHexInvalid0 in zcConfTxMap:    del(zcConfTxMap[txHexInvalid0])
+            if txHexInvalid1 in zcConfTxMap:    del(zcConfTxMap[txHexInvalid1])
+            if txHexInvalid0 in zcSDBets:       zcSDBets.remove(txHexInvalid0)
+            if txHexInvalid1 in zcSDBets:       zcSDBets.remove(txHexInvalid1)
       
-            
 
-               
-               
-            
-               
-      
-   
-   
 
 
 
@@ -144,26 +149,29 @@ from twisted.internet import reactor
 NetworkingFactory = ArmoryClientFactory( \
                              func_loseConnect=(lambda: 1), \
                              func_madeConnect=(lambda: 1), \
-                             func_newTx=newTxFunc)
+                             func_newTx=newTxFunc, \
                              func_newBlock=newBlockFunc)
 
 reactor.callWhenRunning(reactor.connectTCP, '127.0.0.1', \
-                        BITCOIN_PORT, .NetworkingFactory)
+                        BITCOIN_PORT, NetworkingFactory)
 
 
 
-
-TheBDM.setBlocking(True)
-TheBDM.setOnlineMode(True)
 
 def heartbeat(nextBeatSec=1):
+   print '.',
    try:
-      newBlocks = TheBDM.readBlkFileUpdate(wait=True)
-      if newBlocks>0:
-         
+      print 'AllZC: ', len(zcConfTxMap),
+      print 'OnlySD:', len(zcSDBets),
+      print 'Map1   ', len(mapOutPointAffectsBet ),
+      print 'Map2   ', len(mapOutPointSpentInTxID),
+      print 'Map3   ', len(mapOutPointAffectsVal )
+      
    finally:
-      reactor.callLater(nextBeatSec, self.Heartbeat)
+      from twisted.internet import reactor
+      reactor.callLater(nextBeatSec, heartbeat)
 
+reactor.callLater(1, heartbeat)
 reactor.run()
 
 
