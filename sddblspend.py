@@ -66,13 +66,13 @@ def newTxFunc(pytxObj):
       # Check if any outputs are bets to SD
       try:
          if TxOutScriptExtractAddr160(output.binScript) in SDHASH160SET:
-            if len(thisTxSDBets)==0:
-               print 'Bet:', ' '*13, b2h(thisTxHash), coin2str(output.value)
             thisTxSDBets.add(thisTxHash)
             totalVal += output.value
       except:
          print 'Skipping error in reading tx outputs'
 
+   if len(thisTxSDBets)>0:
+      print 'Bet:', ' '*13, b2h(thisTxHash), coin2str(totalVal)
 
    while len(thisTxSDBets)>0:
       # If we get here, we are adding at least one zero-conf tx to the map
@@ -127,13 +127,20 @@ def newBlockFunc(pyHeader, pyTxList):
          op = inp.outpoint
          if mapOutPointSpentInTxID.has_key(op.serialize()):
             with open('invalidated_bets.txt', 'a') as f:
-               txHexInvalid0 = b2h(mapOutPointSpentInTxID[op.serialize()])
-               txHexInvalid1 = b2h(mapOutPointAffectsBet[op.serialize()])
+               txInvalid0 = mapOutPointSpentInTxID[op.serialize()]
+               txInvalid1 = mapOutPointAffectsBet[op.serialize()]
+               txHexInvalid0 = b2h(txInvalid0)
+               txHexInvalid1 = b2h(txInvalid1)
                betVal        = mapOutPointAffectsVal[op.serialize()]
                s = 'RightNow: %s; TxInvalid: %s; BetInvalid: %s; AmtInvalid: %s\n' % \
                      (unixTimeToFormatStr(RightNow()), txHexInvalid0, txHexInvalid1, coin2str(betVal))
-               f.write(s)
                print s
+               f.write(s)
+               f.write('\n' + b2h(txHash) + ' : ' + binary_to_hex(tx.serialize()))
+               if zcConfTxMap.has_key(txInvalid0):
+                  f.write('\n' + txHexInvalid0 + ' : ' + binary_to_hex(zcConfTxMap[txInvalid0]))
+               if zcConfTxMap.has_key(hex_to_binary(txHexInvalid1)):
+                  f.write('\n' + txHexInvalid1 + ' : ' + binary_to_hex(zcConfTxMap[txInvalid1]))
                
             # Remove the invalidated tx
             if txHexInvalid0 in zcConfTxMap:    del(zcConfTxMap[txHexInvalid0])
@@ -158,7 +165,7 @@ reactor.callWhenRunning(reactor.connectTCP, '127.0.0.1', \
 
 
 
-def heartbeat(nextBeatSec=1):
+def heartbeat(nextBeatSec=5):
    print '.',
    try:
       print 'AllZC: ', len(zcConfTxMap),

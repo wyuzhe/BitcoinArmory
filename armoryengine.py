@@ -9322,6 +9322,9 @@ class ArmoryClient(Protocol):
          getdataMsg = PyMessage('getdata')
          for inv in invobj.invList:
             if inv[0]==MSG_INV_BLOCK:
+               print '***********************'
+               print 'Received MSG_INV_BLOCK!'
+               print '***********************'
                if TheBDM.getBDMState()=='Scanning' or \
                   TheBDM.getTxByHash(inv[1]).isInitialized():
                   continue
@@ -9343,7 +9346,11 @@ class ArmoryClient(Protocol):
       if msg.cmd=='block':
          pyHeader = msg.payload.header
          pyTxList = msg.payload.txList
+         print ''
+         print '*********************************************************************'
          print 'Received new block...', binary_to_hex(pyHeader.getHash(), BIGENDIAN)
+         print '*********************************************************************'
+         print ''
          self.factory.func_newBlock(pyHeader, pyTxList)
                   
 
