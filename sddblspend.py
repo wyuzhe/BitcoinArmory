@@ -4,6 +4,7 @@ from twisted.internet.defer import Deferred
 
 
 
+
 ##########################################################################
 ##########################################################################
 #
@@ -44,6 +45,13 @@ else:
    '1dice1Qf4Br5EYjj9rnHWqgMVYnQWehYG', \
    '1dice1e6pdhLzzWQq7yMidf6j8eAg7pkY' ])
 SDHASH160SET = set([addrStr_to_hash160(a) for a in SDADDRSET])
+
+#testTx = PyTx().unserialize(hex_to_binary('0100000001014dcf77a47d86a5e7a0378447a9fee11067fe313daa65c1fa76468c1875728a000000008a4730440220738355af6770c034b4b913a64d65aab9f22b1ef9006fdc64935be18447a4e08c02201fce7e0beecc3b30db04bd939e62a49e15060b401d412faefd350c9549befb2c01410455c4a969d0d52aa6d92f866aed9acf720cb0f8a0222057788413ad00c9b87f3594ada0c118b17df0c757450a3db64ea03de41a6acdc73d7fe95be51c1466f2dfffffffff0140420f00000000001976a91406f1b66e25393fabd2b23a237e4bdfd4c2c35fac88ac00000000'))
+#conflictTx = PyTx().unserialize(hex_to_binary('0100000001014dcf77a47d86a5e7a0378447a9fee11067fe313daa65c1fa76468c1875728a000000008a47304402206bd7ea583fa5cf688fc735606f8e812992ba785fb3723fe72017c17283a209a302201ae91890d69d458d6317848c5b1bf93d630f8f073feb5ee7192bd75a698a519901410455c4a969d0d52aa6d92f866aed9acf720cb0f8a0222057788413ad00c9b87f3594ada0c118b17df0c757450a3db64ea03de41a6acdc73d7fe95be51c1466f2dfffffffff0140420f00000000001976a91406f1b66e25393fabd2b23a237e4bdfd4c2c35fac88ac00000000'))
+#testTxHash = testTx.getHash()
+#conflictHash = conflictTx.getHash()
+#print 'Test Tx Hash:', binary_to_hex(testTxHash, endOut=BIGENDIAN)
+#print 'Conflict Tx Hash:', binary_to_hex(conflictHash, endOut=BIGENDIAN)
 #
 #
 ##########################################################################
@@ -60,6 +68,11 @@ mapOutPointAffectsVal  = {}
 def newTxFunc(pytxObj):
    totalVal = 0
    thisTxHash = pytxObj.getHash()
+
+   #if thisTxHash==conflictHash:
+      #print 'IGNORING CONFLICT'
+      #return
+
    thisTxSDBets = set([])
    zcConfTxMap[thisTxHash] = pytxObj.serialize()
    for output in pytxObj.outputs:
@@ -71,8 +84,8 @@ def newTxFunc(pytxObj):
       except:
          print 'Skipping error in reading tx outputs'
 
-   if len(thisTxSDBets)>0:
-      print 'Bet:', ' '*13, b2h(thisTxHash), coin2str(totalVal)
+   #if len(thisTxSDBets)>0:
+      #print 'Bet:', ' '*13, b2h(thisTxHash), coin2str(totalVal)
 
    while len(thisTxSDBets)>0:
       # If we get here, we are adding at least one zero-conf tx to the map
@@ -101,7 +114,6 @@ def newBlockFunc(pyHeader, pyTxList):
    for tx in pyTxList:
       txHash = tx.getHash()
       if txHash in zcSDBets:
-         print 'Bet made it into the blockchain: ', b2h(txHash)
          zcSDBets.remove(txHash)
          skipSet.add(txHash)
          for inp in tx.inputs:
@@ -121,7 +133,6 @@ def newBlockFunc(pyHeader, pyTxList):
          continue
 
       # These are the surprise tx in the blockchain for which we didn't see ZC tx
-      print 'Surprise!', 
       for inp in tx.inputs:
          # Search for OutPoints being spent that would invalidate an SD bet
          op = inp.outpoint
@@ -166,19 +177,29 @@ reactor.callWhenRunning(reactor.connectTCP, '127.0.0.1', \
 
 
 def heartbeat(nextBeatSec=5):
-   print '.',
    try:
-      print 'AllZC: ', len(zcConfTxMap),
-      print 'OnlySD:', len(zcSDBets),
-      print 'Map1   ', len(mapOutPointAffectsBet ),
-      print 'Map2   ', len(mapOutPointSpentInTxID),
-      print 'Map3   ', len(mapOutPointAffectsVal )
+      pass
+      #print 'All:', len(zcConfTxMap),
+      #print 'SD:',  len(zcSDBets),
+      #print 'MAP:', len(mapOutPointSpentInTxID)
       
    finally:
       from twisted.internet import reactor
       reactor.callLater(nextBeatSec, heartbeat)
 
+
+
+#def injectTx():
+   #print '*'*80
+   #print '*'*80
+   #print 'Injecting tx to be double-spent'
+   #print '*'*80
+   #print '*'*80
+   #newTxFunc(testTx)   
+
+
 reactor.callLater(1, heartbeat)
+#reactor.callLater(10, injectTx)
 reactor.run()
 
 
