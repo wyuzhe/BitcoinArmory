@@ -19,8 +19,9 @@ Test_CppBlockUtils    = False
 Test_SimpleAddress    = False
 Test_MultiSigTx       = False
 Test_TxSimpleCreate   = False
-Test_EncryptedAddress = True
+Test_EncryptedAddress = False
 Test_EncryptedWallet  = False
+Test_WalletFile2point0= True
 Test_TxDistProposals  = False
 Test_SelectCoins      = False
 Test_CryptoTiming     = False
@@ -1548,6 +1549,19 @@ if Test_EncryptedWallet:
    except:
       pass
 
+
+################################################################################
+################################################################################
+if Test_WalletFile2point0:
+   print ''
+   print '*********************************************************************'
+   print 'Testing Armory wallet files (version 2.0)'
+   print '*********************************************************************'
+   print ''
+   print 'Create a valid tx, serialize it, unserialize it, sign it'
+
+
+   TEST UNICODE!
 
 
 

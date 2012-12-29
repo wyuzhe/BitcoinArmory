@@ -1,4 +1,6 @@
 ################################################################################
+# -*- coding: utf-8 -*-
+################################################################################
 #
 # Copyright (C) 2011-2012, Alan C. Reiner    <alan.reiner@gmail.com>
 # Distributed under the GNU Affero General Public License (AGPL v3)
@@ -35,13 +37,12 @@
 
 
 # Version Numbers 
-BTCARMORY_VERSION    = (0, 84, 5, 0)  # (Major, Minor, Minor++, even-more-minor)
+BTCARMORY_VERSION    = (0, 87, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
 PYBTCWALLET_VERSION  = (2,  0, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
 
 ARMORY_DONATION_ADDR = '1ArmoryXcfq7TnCSuZa9fQjRYwJ4bkRKfv'
 
    
-UNICODE!
 
 import copy
 import hashlib
@@ -354,6 +355,9 @@ NETWORKS['\x6f'] = "Test Network"
 NETWORKS['\x34'] = "Namecoin Network"
 
 
+      
+
+
 
 #########  INITIALIZE LOGGING UTILITIES  ##########
 #
@@ -572,6 +576,50 @@ def logexcept_override(type, value, tback):
 sys.excepthook = logexcept_override
 
 
+
+#########  UNICODE UTILITIES ##############
+# We have a lot of fixed-width data to deal with.
+# We need to make sure we can always get the length of stuff in BYTES
+# (not unicode characters)
+DEFAULT_ENCODING = 'utf-8'
+
+def toBytes(theStr):
+   if isinstance(theStr, unicode):
+      return theStr.encode(DEFAULT_ENCODING)
+   elif isinstance(theStr, str):
+      return theStr
+   else:
+      LOGERROR('toBytes() not been defined for input: %s', str(type(theStr)))
+
+def toUnicode(theStr):
+   if isinstance(theStr, unicode):
+      return theStr
+   elif isinstance(theStr, str):
+      return unicode(theStr, DEFAULT_ENCODING)
+   else:
+      LOGERROR('toUnicode() not been defined for input: %s', str(type(theStr)))
+
+def lenBytes(theStr):
+   if isinstance(theStr, unicode):
+      return len( toBytes(theStr) )
+   elif isinstance(theStr, str):
+      return len(theStr)
+   else:
+      LOGERROR('lenBytes() not been defined for input: %s', str(type(theStr)))
+
+def lenChars(theStr):
+   if isinstance(theStr, basestring):
+      return len(toUnicode(theStr))
+   else:
+      LOGERROR('lenChars() not been defined for input: %s', str(type(theStr)))
+
+
+
+if not locals().has_key('_'):
+   _ = lambda x: x
+
+
+################################################################################
 LOGINFO('')
 LOGINFO('')
 LOGINFO('')
@@ -12602,10 +12650,21 @@ class ArmoryWalletFile(object):
          LOGERROR('Attempted to open a wallet file that does not exist!')
          raise FileExistsError
 
-      self.walletPath    = filepath
+      # We will queue updates to the wallet file, and later apply them  
+      # atomically to avoid corruption problems
       self.updateQueue   = []
       self.lastFilesize = os.path.getsize(filepath)
 
+      # WalletEntry objects may request an update, but that update is not 
+      # applied right away.  This variable will be incremented on every
+      # call to applyUpdates(), so WE objects know when it's done
+      self.updateCount  = 0
+
+      # We will need a bunch of different pathnames for atomic update ops
+      self.walletPath        = filepath
+      self.walletPathBackup  = self.getWalletPath('backup')
+      self.walletPathUpdFail = self.getWalletPath('update_unsuccessful')
+      self.walletPathBakFail = self.getWalletPath('backup_unsuccessful')
 
    #############################################################################
    def readWalletEntry(self, startByte):
@@ -12622,8 +12681,8 @@ class ArmoryWalletFile(object):
             LOGERROR('Not a recognized wallet entry type.  Is startbyte correct?')
             raise UnserializeError
 
-         edata = f.read(esize)
-         return WalletEntry.fullUnserialize(edata)
+         wedata = f.read(esize)
+         return WalletEntry.fullUnserialize(wedata)
 
          
         
@@ -12718,8 +12777,13 @@ class ArmoryWalletFile(object):
          if not fileLoc:
             LOGERROR('Must supply start byte of modification')
             raise BadInputError
-         self.updateQueue.append([WLT_UPDATE_MODIFY, newData, fileLoc])
+         self.updateQueue.append([WLT_UPDATE_MODIFY, [newData, fileLoc]])
 
+      #####
+      # Tell the WalletEntry object when to expect its internal state to be 
+      # consistent with the wallet file
+      if isWltEntryObj:
+         theData.syncWhenUpdateCount = self.updateCount + 1
          
          
 
@@ -12741,29 +12805,6 @@ class ArmoryWalletFile(object):
    def applyUpdates(self):
             
       """
-      The input "toAddDataList" should be a list of triplets, such as:
-      [
-        [WLT_DATA_ADD,    WLT_DATATYPE_KEYDATA, addr160_1,  PyBtcAddrObj1]
-        [WLT_DATA_ADD,    WLT_DATATYPE_KEYDATA, addr160_2,  PyBtcAddrObj2]
-        [WLT_DATA_MODIFY, modifyStartByte1,  binDataForOverwrite1  ]
-        [WLT_DATA_ADD,    WLT_DATATYPE_ADDRCOMMENT, addr160_3,  'Long-term savings']
-        [WLT_DATA_MODIFY, modifyStartByte2,  binDataForOverwrite2 ]
-      ]
-
-      The return value is the list of new file byte offsets (from beginning of
-      the file), that specify the start of each modification made to the
-      wallet file.  For MODIFY fields, this just returns the modifyStartByte
-      field that was provided as input.  For adding data, it specifies the
-      starting byte of the new field (the DATATYPE byte).  We keep this data
-      in PyBtcAddress objects so that we know where to apply modifications in
-      case we need to change something, like converting from unencrypted to
-      encrypted private keys.
-
-      If this method fails, we simply return an empty list.  We can check for
-      an empty list to know if the file update succeeded.
-
-      WHY IS THIS SO COMPLICATED?  -- Because it's atomic!
-
       When we want to add data to the wallet file, we will do so in a completely
       recoverable way.  We define this method to make sure a backup exists when
       we start modifying the file, and keep a flag to identify when the wallet
@@ -12797,122 +12838,84 @@ class ArmoryWalletFile(object):
          raise FileExistsError, 'No wallet file exists to be updated!'
 
       if len(updateList)==0:
-         return []
+         return False
 
       # Make sure that the primary and backup files are synced before update
       self.doWalletFileConsistencyCheck()
 
-      walletFileBackup = self.getWalletPath('backup')
-      mainUpdateFlag   = self.getWalletPath('update_unsuccessful')
-      backupUpdateFlag = self.getWalletPath('backup_unsuccessful')
-
-
-      # Will be passing back info about all data successfully added
-      oldWalletSize = os.path.getsize(self.walletPath)
-      updateLocations = []
-      dataToChange    = []
-      toAppend = BinaryPacker()
-
-      try:
-         for entry in updateList:
-            modType    = entry[0]
-            updateInfo = entry[1:]
-
-            if(modType==WLT_UPDATE_ADD):
-               dtype = updateInfo[0]
-               updateLocations.append(toAppend.getSize()+oldWalletSize)
-               if dtype==WLT_DATATYPE_KEYDATA:
-                  if len(updateInfo[1])!=20 or not isinstance(updateInfo[2], PyBtcAddress):
-                     raise Exception, 'Data type does not match update type'
-                  toAppend.put(UINT8, WLT_DATATYPE_KEYDATA)
-                  toAppend.put(BINARY_CHUNK, updateInfo[1])
-                  toAppend.put(BINARY_CHUNK, updateInfo[2].serialize())
-
-               elif dtype in (WLT_DATATYPE_ADDRCOMMENT, WLT_DATATYPE_TXCOMMENT):
-                  if not isinstance(updateInfo[2], str):
-                     raise Exception, 'Data type does not match update type'
-                  toAppend.put(UINT8, dtype)
-                  toAppend.put(BINARY_CHUNK, updateInfo[1])
-                  toAppend.put(UINT16, len(updateInfo[2]))
-                  toAppend.put(BINARY_CHUNK, updateInfo[2])
-
-               elif dtype==WLT_DATATYPE_OPEVAL:
-                  raise Exception, 'OP_EVAL not support in wallet yet'
-
-            elif(modType==WLT_UPDATE_MODIFY):
-               updateLocations.append(updateInfo[0])
-               dataToChange.append( updateInfo )
-            else:
-               LOGERROR('Unknown wallet-update type!')
-               raise Exception, 'Unknown wallet-update type!'
-      except Exception:
-         LOGEXCEPT('Bad input to walletFileSafeUpdate')
-         return []
-
-      binaryToAppend = toAppend.getBinaryString()
+      # Split the queue into updates and modifications.  
+      toAppend = []
+      toModify = []
+      for modType,rawData in updateList:
+         if(modType==WLT_UPDATE_ADD):
+            toAppend.append(rawData)
+         elif(modType==WLT_UPDATE_MODIFY):
+            toModify.append(rawData)
 
       # We need to safely modify both the main wallet file and backup
       # Start with main wallet
-      touchFile(mainUpdateFlag)
+      touchFile(self.walletPathUpdFail)
 
       try:
          wltfile = open(self.walletPath, 'ab')
-         wltfile.write(binaryToAppend)
+         wltfile.write(''.join(toAppend))
          wltfile.close()
 
          # This is for unit-testing the atomic-wallet-file-update robustness
          if self.interruptTest1: raise InterruptTestError
 
          wltfile = open(self.walletPath, 'r+b')
-         for loc,replStr in dataToChange:
+         for loc,replStr in toModify:
             wltfile.seek(loc)
             wltfile.write(replStr)
          wltfile.close()
 
       except IOError:
          LOGEXCEPT('Could not write data to wallet.  Permissions?')
-         shutil.copy(walletFileBackup, self.walletPath)
-         os.remove(mainUpdateFlag)
-         return []
+         shutil.copy(self.walletPathBackup, self.walletPath)
+         os.remove(self.walletPathUpdFail)
+         return False
 
       # Write backup flag before removing main-update flag.  If we see
       # both flags, we know file IO was interrupted RIGHT HERE
-      touchFile(backupUpdateFlag)
+      touchFile(self.walletPathBakFail)
 
       # This is for unit-testing the atomic-wallet-file-update robustness
       if self.interruptTest2: raise InterruptTestError
 
-      os.remove(mainUpdateFlag)
+      os.remove(self.walletPathUpdFail)
 
       # Modify backup
       try:
          # This is for unit-testing the atomic-wallet-file-update robustness
          if self.interruptTest3: raise InterruptTestError
 
-         backupfile = open(walletFileBackup, 'ab')
-         backupfile.write(binaryToAppend)
+         backupfile = open(self.walletPathBackup, 'ab')
+         backupfile.write(''.join(toAppend))
          backupfile.close()
 
-         backupfile = open(walletFileBackup, 'r+b')
-         for loc,replStr in dataToChange:
+         backupfile = open(self.walletPathBackup, 'r+b')
+         for loc,replStr in toModify:
             backupfile.seek(loc)
             backupfile.write(replStr)
          backupfile.close()
 
       except IOError:
          LOGEXCEPT('Could not write backup wallet.  Permissions?')
-         shutil.copy(self.walletPath, walletFileBackup)
-         os.remove(mainUpdateFlag)
-         return []
+         shutil.copy(self.walletPath, self.walletPathBackup)
+         os.remove(self.walletPathUpdFail)
+         return False
 
-      os.remove(backupUpdateFlag)
+      os.remove(self.walletPathBakFail)
+      self.updateCount += 1
+      self.updateQueue = []
 
-      return updateLocations
+      return True
 
 
 
    #############################################################################
-   def doWalletFileConsistencyCheck(self, onlySyncBackup=True):
+   def doWalletFileConsistencyCheck(self):
       """
       First we check the file-update flags (files we touched/removed during
       file modification operations), and then restore the primary wallet file
@@ -12937,40 +12940,35 @@ class ArmoryWalletFile(object):
       critical to protect against byte errors.
       """
 
-
-
       if not os.path.exists(self.walletPath):
          raise FileExistsError, 'No wallet file exists to be checked!'
 
-      walletFileBackup = self.getWalletPath('backup')
-      mainUpdateFlag   = self.getWalletPath('update_unsuccessful')
-      backupUpdateFlag = self.getWalletPath('backup_unsuccessful')
-
-      if not os.path.exists(walletFileBackup):
+      if not os.path.exists(self.walletPathBackup):
          # We haven't even created a backup file, yet
-         LOGDEBUG('Creating backup file %s', walletFileBackup)
-         touchFile(backupUpdateFlag)
-         shutil.copy(self.walletPath, walletFileBackup)
-         os.remove(backupUpdateFlag)
+         LOGDEBUG('Creating backup file %s', self.walletPathBackup)
+         touchFile(self.walletPathBakFail)
+         shutil.copy(self.walletPath, self.walletPathBackup)
+         os.remove(self.walletPathBakFail)
+         return
 
-      if os.path.exists(backupUpdateFlag) and os.path.exists(mainUpdateFlag):
+      if os.path.exists(self.walletPathBakFail) and os.path.exists(self.walletPathUpdFail):
          # Here we actually have a good main file, but backup never succeeded
          LOGWARN('***WARNING: error in backup file... how did that happen?')
-         shutil.copy(self.walletPath, walletFileBackup)
-         os.remove(mainUpdateFlag)
-         os.remove(backupUpdateFlag)
-      elif os.path.exists(mainUpdateFlag):
+         shutil.copy(self.walletPath, self.walletPathBackup)
+         os.remove(self.walletPathUpdFail)
+         os.remove(self.walletPathBakFail)
+      elif os.path.exists(self.walletPathUpdFail):
          LOGWARN('***WARNING: last file operation failed!  Restoring wallet from backup')
          # main wallet file might be corrupt, copy from backup
-         shutil.copy(walletFileBackup, self.walletPath)
-         os.remove(mainUpdateFlag)
-      elif os.path.exists(backupUpdateFlag):
+         shutil.copy(self.walletPathBackup, self.walletPath)
+         os.remove(self.walletPathUpdFail)
+      elif os.path.exists(self.walletPathBakFail):
          LOGWARN('***WARNING: creation of backup was interrupted -- fixing')
-         shutil.copy(self.walletPath, walletFileBackup)
-         os.remove(backupUpdateFlag)
+         shutil.copy(self.walletPath, self.walletPathBackup)
+         os.remove(self.walletPathBakFail)
 
-      if onlySyncBackup:
-         return 0
+
+
 
 
 
@@ -13010,47 +13008,71 @@ class WalletEntry(object):
    WLTENTRYCLASS = { 'ADDR': WalletEntryAddress,
                      'ROOT': WalletEntryRootObj,
                      'LABL': WalletEntryLabel,
+                     'COMM': WalletEntryComment,
                      'P2SH': WalletEntryP2SHScript,
-                     'ERAS': WalletEntryDeleted, 
+                     'ZERO': WalletEntryDeleted, 
                      'RLAT': WalletEntryRelationship }
-                     'CKEY': WalletEntryCryptoKey }
+                     'CRYP': WalletEntryEncryptionKey }
                      'HEAD': WalletEntryFileHeader }
 
+   #############################################################################
    def __init__(self, wlt):
-      self.wltRef  = None
-      self.root160 = None
+      self.wltRef     = None
+      self.root160    = None
+      self.wltFileObj = None
       self.wltByteLoc = -1
 
 
-   def createWalletUpdateTuple(self, wltUpdateType, startByte=-1):
 
-      self.wltFileLoc = whereWeJustPutIt
-       
-
+   #############################################################################
    def fullSerialize(self):
+      wecode = self.entryCode
+      if wecode=='ERRR' or not len(wecode)==4:
+         LOGERROR('EntryCode is not defined!')
+         return ''
 
-   def fullUnserialize(self):
-      LOGERROR('Unserialize method needs to be overridden in child class')
+      innerData = self.serialize()
+      webytes = lenBytes(innerData) 
+      wedata  =  toBytes(innerData)
+      wechk   = computeChecksum(wedata)
 
-   def readFromOpenFile(self, openFile):
-      estart = openFile.tell()
-      ecode  = openFile.read(4) 
-      ebytes = openFile.read(4) 
-      echk   = openFile.read(4) 
-      edata  = openFile.read(ebytes) 
+      bp = BinaryPacker() 
+      bp.put(BINARY_CHUNK, wecode , widthBytes=4)
+      bp.put(UINT32, webytes)
+      bp.put(BINARY_CHUNK, wechk,   widthBytes=4)
+      bp.put(BINARY_CHUNK, wedata,  widthBytes=webytes)
+      return bp.getBinaryString()
 
-      edata = verifyChecksum(edata, echk)
+   #############################################################################
+   def fullUnserialize(self, toUnpack, fileOffset=None):
+      if isinstance(toUnpack, BinaryUnpacker):
+         binUnpacker = toUnpack
+         if fileOffset==None:
+            fileOffset = binUnpacker.getPosition()
+      else:
+         binUnpacker = BinaryUnpacker(toUnpack)
+         if fileOffset==None:
+            fileOffset=-1
+
+      wecode  = binUnpacker.get(BINARY_CHUNK, 4) 
+      webytes = binUnpacker.get(UINT32)
+      wechk   = binUnpacker.get(BINARY_CHUNK, 4) 
+      wedata  = binUnpacker.read(webytes) 
+
+      wedata = verifyChecksum(wedata, wechk)
       if len(theData)==0:
          LOGERROR('Error reading wallet file entry starting at byte %d' % start)
          return None
    
-      if not WLTENTRYCLASS.has_key(ecode):
-         LOGWARN('Unrecognized entry in wallet file: %s' % ecode)
+      if not WLTENTRYCLASS.has_key(wecode):
+         LOGWARN('Unrecognized entry in wallet file: %s' % wecode)
 
-      wltEntry = WLTENTRYCLASS[ecode]().unserialize(edata)
-      wltEntry.wltByteLoc = estart
+      wltEntry = WLTENTRYCLASS[wecode]().unserialize(wedata)
+      wltEntry.wltByteLoc = fileOffset
 
 
+
+#############################################################################
 class WalletEntryAddress(WalletEntry):
    entryType = 'PyBtcAddress'
    entryCode = 'ADDR'
@@ -13083,6 +13105,9 @@ class WalletEntryAddress(WalletEntry):
 
 class WalletEntryRootObj(WalletEntry):
    entryType = 'PyBtcAddress'
+
+
+
 
 
 class PyBtcWallet(object):
