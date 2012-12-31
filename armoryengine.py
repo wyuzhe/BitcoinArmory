@@ -1309,6 +1309,7 @@ class BinaryUnpacker(object):
    def rewind(self, bytesToRewind): self.pos -= bytesToRewind
    def resetPosition(self, toPos=0): self.pos = toPos
    def getPosition(self): return self.pos
+   def isEndOfStream(self): return (self.getPosition()>=self.getSize())
 
    def get(self, varType, sz=0, endianness=LITTLEENDIAN):
       """
@@ -12640,6 +12641,107 @@ class PyBtcAddress(object):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################################################################################
+################################################################################
+class EncryptionInfo(object):
+   """
+   This can be attached to WalletEntries to define how they should be encrypted
+   or just the private keys themselves.  The idea is to have a uniform way of
+   specifying how to encryption & decrypt things in the wallet file, even though
+   it may require using information outside this object to apply it.
+
+   For instance, private keys will usually be encrypted using a master key that 
+   is, itself, encrypted.  The private key would simply have one of these 
+   objects serialized next to it, specifying the ID of the encryption object 
+   that was used to encrypt it.  Then the calling code can go get that object
+   and do what is needed for it.   
+
+   Frequently, this encryption info will contain initialization vectors (IVs), 
+   generated randomly at creation time, or references to what is to be used as
+   the IV (such as using the address string).  
+
+   Examples:  
+      There is 
+         KDF object with ID      '11112222aaaabbbb'   (ROMixOver2 w/ params)
+         Crypto obj with ID      'ccccdddd88889999'   (AES256-CFB generic)
+         Master key ID           '12345678abcdefab'   (WalletEntry object)
+
+
+   * Anything in all capitals letters are sentinel values which mean: 
+     "the calling code should recognize this sentinel value and provide 
+      the specified data"
+
+   Master Private Key is also in wallet:
+             EncryptionInfo( '11112222aaaabbbb', \
+                             'ccccdddd88889999', \
+                             'PASSPHRASEPLEASE' , \
+                             '<IVStoredWithObj>')
+
+   Private key encryption with a master private key:
+             EncryptionInfo( '0000000000000000', \
+                             'ccccdddd88889999', \
+                             '12345678abcdefab' , \
+                             'PUBLICKEYHASH160')
+
+   Private key encryption with just KDF (no master):
+             EncryptionInfo( '11112222aaaabbbb', \
+                             'ccccdddd88889999', \
+                             'PASSPHRASEPLEASE' , \
+                             'PUBLICKEYHASH160')
+   
+   Encrypt P2SH Scripts and Labels in other file
+             EncryptionInfo( '0000000000000000'  \
+                             'ccccdddd88889999', \
+                             'PARENTCHAINCODE' , \
+                             '<IVStoredWithObj>')
+
+   Encrypt Public Keys & Addresses as WalletEntries:
+             EncryptionInfo( '11112222aaaabbbb', \
+                             'ccccdddd88889999', \
+                             'ROOTCHAINCODE256' , \
+                             '<IVStoredWithObj>')
+   """
+
+   def __init__(self, typeStr=None):
+      self.setEncryptionType(typeStr)
+      self.kdfAlgoID       = None
+      self.encryptAlgoID   = None
+      self.keySource   = None
+      self.ivSource    = None
+
+   def setEncryptionType(self, typeStr):
+      if typeStr
+
+
+   def setKDF(self, **kwargs):
+      if not kwargs.has_key('KDFName'):
+         LOGERROR('Cannot set KDF without name')
+         ROMixOv2'
+
+
+   def serialize(self):
+
+   def unserialize(self):
+       
+
+
+
 ################################################################################
 ################################################################################
 class ArmoryWalletFile(object):
@@ -12666,23 +12768,73 @@ class ArmoryWalletFile(object):
       self.walletPathUpdFail = self.getWalletPath('update_unsuccessful')
       self.walletPathBakFail = self.getWalletPath('backup_unsuccessful')
 
+      # Last synchronized all chains to this block
+      self.lastSyncBlockNum = 0
+
+      # All wallet roots (every branch node that isn't used for its addr)
+      self.fileHeader = {}
+      self.rootMap = {}
+      self.ekeyMap = {}
+
+      # If not None, it means that this wallet holds only a subset of data 
+      # in the parent file.  Probably just addr/tx comments
+      self.parentFileRef = None
+
+      # Default encryption settings for "outer" encryption (if we want to
+      # encrypt the entire WalletEntry, not just the private keys
+      self.defaultOuterEncrypt = ArmoryEncryptionSettings(None)
+
+
+      # These flags are ONLY for unit-testing the atomic file operations
+      self.interruptTest1  = False
+      self.interruptTest2  = False
+      self.interruptTest3  = False
+
+
    #############################################################################
-   def readWalletEntry(self, startByte):
+   def mergeWalletFile(self, filepath, weTypesToMerge=['ALL']):
+      """
+      Just like in git, WltA.mergeWalletFile(WltB) means we want to pull all 
+      the keys from WltB into WltA and leave WltB untouched.
 
-      filesize = os.path.getsize(self.walletPath)
-      if startByte>filesize:
-         LOGERROR('Cannot read wallet entry beyond end of file!')
+      We can use the weTypesToMerge to specify only a subset of wallet entries
+      to merge.  Like: ['P2SH','EKEY'] will only move P2SH scripts and 
+      encryption keys entries over.  All other entry types will not be merged.
+      """
+      # Open wallet file
+      if not os.path.exists(filepath):
+         LOGERROR('Wallet to merge does not exist: %s', filepath)
 
-      with open(self.walletPath, 'rb') as f:
-         f.seek(startByte)
-         eclass = f.read(4)
-         esize = BinaryUnpacker(f.read(4)).get(UINT32)
-         if not eclass in WalletEntry.WLTENTRYCLASS:
-            LOGERROR('Not a recognized wallet entry type.  Is startbyte correct?')
-            raise UnserializeError
+      with open(filepath, 'rb') as f:
+         bu = BinaryUnpacker(f.read())
 
-         wedata = f.read(esize)
-         return WalletEntry.fullUnserialize(wedata)
+      while not bu.isEndOfStream():
+         weObj = readWalletEntry(bu)
+         if weTypesToMerge[0].lower()=='all' or weObj.entryCode in weTypesToMerge:
+            self.addFileOperationToQueue('Append', weObj)
+
+
+   #############################################################################
+   def mergeChainFromWallet(self, filepath, rootID, weTypesToMerge=['ALL']):
+      # Open wallet file
+      if not os.path.exists(filepath):
+         LOGERROR('Wallet to merge does not exist: %s', filepath)
+
+      with open(filepath, 'rb') as f:
+         bu = BinaryUnpacker(f.read())
+
+      while not bu.isEndOfStream():
+         weObj = readWalletEntry(bu)
+         if weObj.payload.root160
+         if weTypesToMerge[0].lower()=='all' or weObj.entryCode in weTypesToMerge:
+            self.addFileOperationToQueue('Append', weObj)
+      
+
+
+
+   #############################################################################
+   def readWalletEntry(self, toUnpack):
+      return WalletEntry().unserialize(toUnpack)
 
          
         
@@ -12740,6 +12892,7 @@ class ArmoryWalletFile(object):
             fileLoc = theData.wltByteLoc
             operationType = 'Modify'
          else:
+            LOGWARN('WalletEntry replace not equal size (%s).  Delete&Append', theData.entryCode)
             self.addFileOperationToQueue('DeleteEntry', theData.wltByteLoc)
             operationType = 'Append'
       elif operationType.lower()=='deleteentry':
@@ -13005,6 +13158,7 @@ class WalletEntry(object):
    entryCode = 'ERRR'
 
 
+   WLTENTRYCODES = { }
    WLTENTRYCLASS = { 'ADDR': WalletEntryAddress,
                      'ROOT': WalletEntryRootObj,
                      'LABL': WalletEntryLabel,
@@ -13016,35 +13170,49 @@ class WalletEntry(object):
                      'HEAD': WalletEntryFileHeader }
 
    #############################################################################
-   def __init__(self, wlt):
-      self.wltRef     = None
-      self.root160    = None
-      self.wltFileObj = None
-      self.wltByteLoc = -1
+   def __init__(self, wltFileRef=None, wltByteLoc=-1, parentRoot=None):
+      self.payloadPlain    = None
+      self.payloadEncrypt  = None
+      self.wltFileRef      = wltFileRef
+      self.wltByteLoc      = wltByteLoc
+      self.parentRoot160   = parentRoot
+      self.encryptInfo     = ArmoryEncryption(None)
+
+      # Create a reverse lookup of classes to codes
+      if len(self.WLTENTRYCODES)==0:
+         for key,val in self.WLTENTRYCLASS.iteritems():
+            self.WLTENTRYCODES[val] = key
 
 
+   def isEncrypted(self,
 
    #############################################################################
-   def fullSerialize(self):
-      wecode = self.entryCode
-      if wecode=='ERRR' or not len(wecode)==4:
-         LOGERROR('EntryCode is not defined!')
+   def serialize(self):
+      if not self.payload:
+         LOGERROR('Cannot serialize a WalletEntry without a payload')
          return ''
 
-      innerData = self.serialize()
-      webytes = lenBytes(innerData) 
-      wedata  =  toBytes(innerData)
-      wechk   = computeChecksum(wedata)
+      weCode    = self.WLTENTRYCODES[self.payload.__class__]
+      weData    = toBytes(self.payload.serialize())
+      weBytes   = lenBytes(weData) 
+      weChk     = computeChecksum(weData)
 
       bp = BinaryPacker() 
-      bp.put(BINARY_CHUNK, wecode , widthBytes=4)
-      bp.put(UINT32, webytes)
-      bp.put(BINARY_CHUNK, wechk,   widthBytes=4)
-      bp.put(BINARY_CHUNK, wedata,  widthBytes=webytes)
+      bp.put(BINARY_CHUNK, weCode,                           widthBytes= 4)
+      bp.put(UINT32, weBytes)                               #widthBytes= 4
+      bp.put(BINARY_CHUNK, self.parentRoot160,               widthBytes=20)
+      bp.put(BINARY_CHUNK, self.encryptInfo.serialize())    #widthBytes=64
+
+      weHeadChk = computeChecksum(bp.getBinaryString())
+      bp.put(BINARY_CHUNK, weHeadChk,                        widthBytes= 4)
+
+      bp.put(BINARY_CHUNK, weData,                           widthBytes=weBytes)
+      bp.put(BINARY_CHUNK, weChk,                            widthBytes= 4)
       return bp.getBinaryString()
 
+
    #############################################################################
-   def fullUnserialize(self, toUnpack, fileOffset=None):
+   def unserialize(self, toUnpack, fileOffset=None):
       if isinstance(toUnpack, BinaryUnpacker):
          binUnpacker = toUnpack
          if fileOffset==None:
@@ -13054,31 +13222,81 @@ class WalletEntry(object):
          if fileOffset==None:
             fileOffset=-1
 
-      wecode  = binUnpacker.get(BINARY_CHUNK, 4) 
-      webytes = binUnpacker.get(UINT32)
-      wechk   = binUnpacker.get(BINARY_CHUNK, 4) 
-      wedata  = binUnpacker.read(webytes) 
+      weHead    = binUnpacker(BINARY_CHUNK, 4+4+20+ArmoryEncryptionInfo.SIZE)
+      weHeadChk = binUnpacker.get(BINARY_CHUNK,  4) 
+      weHead    = verifyChecksum(weHead, weHeadChk)
+      headerError = False
+      if len(weHead)==0:
+         LOGERROR('Checksum error in wallet entry HEADER;  could not fix.')
+         LOGERROR('Attempting to skip wallet entry')
+         headerError = True
+         
+      
+      headUnpacker = BinaryUnpacker(weHead)
+      weCode   = headUnpacker.get(BINARY_CHUNK, 4) 
+      weBytes  = headUnpacker.get(UINT32)
+      weRoot   = headUnpacker.get(BINARY_CHUNK, 20) 
+      weCrypto = headUnpacker.get(BINARY_CHUNK, ArmoryEncryptionInfo.SIZE)
 
-      wedata = verifyChecksum(wedata, wechk)
-      if len(theData)==0:
-         LOGERROR('Error reading wallet file entry starting at byte %d' % start)
+      weData   = binUnpacker.get(BINARY_CHUNK,  weBytes) 
+      weChk    = binUnpacker.get(BINARY_CHUNK,  4) 
+
+      if headerError:
          return None
-   
-      if not WLTENTRYCLASS.has_key(wecode):
-         LOGWARN('Unrecognized entry in wallet file: %s' % wecode)
 
-      wltEntry = WLTENTRYCLASS[wecode]().unserialize(wedata)
-      wltEntry.wltByteLoc = fileOffset
+      weData = verifyChecksum(weData, weChk)
+      if len(weData)==0:
+         LOGERROR('Checksum error in wallet entry DATA; could not fix.')
+         LOGERROR('Attempting to skip wallet entry')
+         return None
 
+      # Now let's save and process
+      self.encryptInfo = ArmoryEncryptionInfo().unserialize(weCrypto)
+      if self.encryptInfo.useEncryption():
+         # Encrypted data is stored as raw binary string.  
+         self.payloadPlain   = ''
+         self.payloadEncrypt = weData
+      else:
+         # Unencrypted is instantly unserialized into a payload object
+         if not WLTENTRYCLASS.has_key(weCode):
+            LOGWARN('Unrecognized entry in wallet file: %s' % weCode)
+            LOGWARN('Skipping wallet entry')
+            return None
+         payloadClass = self.WLTENTRYCLASS[weCode]
+         self.payloadPlain   = payloadClass().unserialize(weData)
+         self.payloadEncrypt = ''
+         self.payloadPlain.wltEntryRef = self
+
+      self.wltByteLoc = fileOffset
+
+
+   #############################################################################
+   def decryptPayload(self, **decryptData):
+      
 
 
 #############################################################################
-class WalletEntryAddress(WalletEntry):
-   entryType = 'PyBtcAddress'
-   entryCode = 'ADDR'
+class WalletPayloadDeleted(object):
+
+   def __init__(self, nBytes=0, wltRef=None, wltLoc=-1, root=None):
+      super(WalletEntryDeleted, self).__init__(wltRef, wltLoc, root)
+      self.nBytes = nBytes
+
+
+   def serialize(self):
+      return '\x00'*self.nBytes
+   
+   def unserialize(self, weData):
+      self.nBytes = len(weData)
+      if not weData.count('\x00')==self.nBytes:
+         LOGERROR('Expecting all zero bytes in WalletEntryDeleted.') 
+      
+
+
+#############################################################################
+class WalletPayloadAddress(object):
 
    def __init__(self, wltRef, pyaddr):
-      super(WalletEntryADDR, self).__init__(wltRef)
       self.pyAddr = pyaddr
 
 
@@ -13103,8 +13321,88 @@ class WalletEntryAddress(WalletEntry):
       return self.pyAddr.getChaincode()
    
 
-class WalletEntryRootObj(WalletEntry):
-   entryType = 'PyBtcAddress'
+class WalletPayloadRootObj(object):
+      
+      self.wltCreateDate  = 0
+      self.p2shMap   = {}  # maps raw P2SH scripts to full scripts.
+      self.labelName   = ''
+      self.labelDescr  = ''
+      self.linearAddr160List = []
+      self.chainIndexMap = {}
+      self.addrMap       = {}  # maps 20-byte addresses to WalletEntryAddr objects
+      self.labelsMap     = {}  # maps 20-byte addresses to user-created labels
+      self.chainIndexMap = {}
+
+      """
+      self.fileTypeStr    = '\xbaWALLET\x00'
+      self.magicBytes     = MAGIC_BYTES
+      self.version        = PYBTCWALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
+      self.eofByte        = 0
+      self.cppWallet      = None   # Mirror of PyBtcWallet in C++ object
+      self.cppInfo        = {}     # Extra info about each address to help sync
+      self.watchingOnly   = False
+      self.wltCreateDate  = 0
+
+      # Three dictionaries hold all data
+      self.addrMap     = {}  # maps 20-byte addresses to PyBtcAddress objects
+      self.commentsMap = {}  # maps 20-byte addresses to user-created comments
+      self.commentLocs = {}  # map comment keys to wallet file locations
+      self.opevalMap   = {}  # maps 20-byte addresses to OP_EVAL data (future)
+      self.labelName   = ''
+      self.labelDescr  = ''
+      self.linearAddr160List = []
+      self.chainIndexMap = {}
+      if USE_TESTNET:
+         self.addrPoolSize = 10  # this makes debugging so much easier!
+      else:
+         self.addrPoolSize = CLI_OPTIONS.keypool
+
+      # For file sync features
+      self.walletPath = ''
+      self.doBlockchainSync = BLOCKCHAIN_READONLY
+      self.lastSyncBlockNum = 0
+
+      # Private key encryption details
+      self.useEncryption  = False
+      self.kdf            = None
+      self.crypto         = None
+      self.kdfKey         = None
+      self.defaultKeyLifetime = 10    # seconds after unlock, that key is discarded
+      self.lockWalletAtTime   = 0    # seconds after unlock, that key is discarded
+      self.isLocked       = False
+      self.testedComputeTime=None
+
+      # Deterministic wallet, need a root key.  Though we can still import keys.
+      # The unique ID contains the network byte (id[-1]) but is not intended to
+      # resemble the address of the root key
+      self.uniqueIDBin = ''
+      self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
+      self.lastComputedChainAddr160  = ''
+      self.lastComputedChainIndex = 0
+      self.highestUsedChainIndex  = 0 
+
+      # All PyBtcAddress serializations are exact same size, figure it out now
+      self.pybtcaddrSize = len(PyBtcAddress().serialize())
+
+
+      # All BDM calls by default go on the multi-thread-queue.  But if the BDM
+      # is the one calling the PyBtcWallet methods, it will deadlock if it uses
+      # the queue.  Therefore, the BDM will set this flag before making any 
+      # calls, which will tell PyBtcWallet to use __direct methods.
+      self.calledFromBDM = False
+
+      # Finally, a bunch of offsets that tell us where data is stored in the
+      # file: this can be generated automatically on unpacking (meaning it
+      # doesn't require manually updating offsets if I change the format), and
+      # will save us a couple lines of code later, when we need to update things
+      self.offsetWltFlags  = -1
+      self.offsetLabelName = -1
+      self.offsetLabelDescr  = -1
+      self.offsetTopUsed   = -1
+      self.offsetRootAddr  = -1
+      self.offsetKdfParams = -1
+      self.offsetCrypto    = -1
+      """
 
 
 
@@ -13338,10 +13636,6 @@ class PyBtcWallet(object):
       self.offsetKdfParams = -1
       self.offsetCrypto    = -1
 
-      # These flags are ONLY for unit-testing the walletFileSafeUpdate function
-      self.interruptTest1  = False
-      self.interruptTest2  = False
-      self.interruptTest3  = False
 
    #############################################################################
    def getWalletVersion(self):

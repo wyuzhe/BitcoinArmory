@@ -124,7 +124,7 @@ void KdfRomix::computeKdfParams(double targetComputeSec, uint32_t maxMemReqts)
    if(targetComputeSec == 0)
    {
       numIterations_ = 1;
-      memoryReqtBytes_ = 1024;
+      memoryReqtBytes_ = 4096;
       return;
    }
 
