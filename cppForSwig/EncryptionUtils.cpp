@@ -117,7 +117,7 @@ void KdfRomix::computeKdfParams(double targetComputeSec, uint32_t maxMemReqts)
 {
    // Create a random salt, even though this is probably unnecessary:
    // the variation in numIter and memReqts is probably effective enough
-   salt_ = SecureBinaryData().GenerateRandom(32);
+   salt_ = SecureBinaryData().GenerateRandom(16);
 
    // If target compute is 0s, then this method really only generates 
    // a random salt, and sets the other params to default minimum.
@@ -130,7 +130,7 @@ void KdfRomix::computeKdfParams(double targetComputeSec, uint32_t maxMemReqts)
 
 
    // Here, we pick the largest memory reqt that allows the executing system
-   // to compute the KDF is less than the target time.  A maximum can be 
+   // to compute the KDF in less than the target time.  A maximum can be 
    // specified, in case the target system is likely to be memory-limited
    // more than compute-speed limited
    SecureBinaryData testKey("This is an example key to test KDF iteration speed");
