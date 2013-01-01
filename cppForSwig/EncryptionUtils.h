@@ -128,6 +128,7 @@
 // on how much memory the KDF can use -- 32 MB is good
 // If a KDF uses 32 MB of memory, it is undeniably easier
 // to compute on a CPU than a GPU.
+#define DEFAULT_KDF_MIN_MEMORY 32*1024
 #define DEFAULT_KDF_MAX_MEMORY 32*1024*1024
 
 using namespace std;
@@ -505,6 +506,7 @@ public:
                                  list<uint32_t> parentTreeIdx=list<uint32_t>());
 
    
+   void destroy(void);
    void deletePrivateKey(void);
    ExtendedKey makePublicCopy(void);
 

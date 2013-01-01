@@ -1565,6 +1565,16 @@ if Test_WalletFile2point0:
 
 
 
+
+   weKDF = WalletEntryKDFAlgo('ROMixOv2')
+   weKDF = WalletEntryKDFAlgo('romixov2')
+   weKDF = WalletEntryKDFAlgo('ROMixOv2', memReqd=4e10, numIter=1, salt=
+   weKDF = WalletEntryKDFAlgo('ROMixOv2', memReqd=1024, numIter=10, salt='')
+
+
+
+
+
 ################################################################################
 ################################################################################
 if Test_TxDistProposals:

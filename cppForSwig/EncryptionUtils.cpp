@@ -124,7 +124,7 @@ void KdfRomix::computeKdfParams(double targetComputeSec, uint32_t maxMemReqts)
    if(targetComputeSec == 0)
    {
       numIterations_ = 1;
-      memoryReqtBytes_ = 4096;
+      memoryReqtBytes_ = DEFAULT_KDF_MIN_MEMORY;
       return;
    }
 
@@ -136,7 +136,7 @@ void KdfRomix::computeKdfParams(double targetComputeSec, uint32_t maxMemReqts)
    SecureBinaryData testKey("This is an example key to test KDF iteration speed");
 
    // Start the search for a memory value at 1kB
-   memoryReqtBytes_ = 1024;
+   memoryReqtBytes_ = DEFAULT_KDF_MIN_MEMORY;
    double approxSec = 0;
    while(approxSec <= targetComputeSec/4 && memoryReqtBytes_ < maxMemReqts)
    {
