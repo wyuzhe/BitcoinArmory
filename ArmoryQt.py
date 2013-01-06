@@ -3141,7 +3141,10 @@ class ArmoryMainWindow(QMainWindow):
                lblText += 'Armory could not find the blockchain files produced '
                lblText += 'by Bitcoin-Qt.  Do you run Bitcoin-Qt (or bitcoind) '
                lblText += 'from a non-standard directory?   Armory expects to '
-               lblText += 'find the blkXXXX.dat files in <br><br>%s<br><br> '
+               lblText += 'find the blkXXXX.dat files in '
+               lblText += '<br><br>'
+               lblText += '%s' % BLKFILE_DIRECTORY
+               lblText += '<br><br>'
                lblText += 'If you know where it is located, please restart '
                lblText += 'Armory using the " --satoshi-datadir=<FOLDERPATH> '
                lblText += 'to notify Armory where to find them.'

@@ -224,6 +224,7 @@ public:
                         uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
    void unserialize(BinaryRefReader & brr, 
                         uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
+   void unserialize_1_(BinaryData    const & str) { unserialize(str); }
 
    /////////////////////////////////////////////////////////////////////////////
    // Not all TxIns have sendor info.  Might have to go to the Outpoint and get
@@ -311,6 +312,7 @@ public:
                          uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
    void unserialize(BinaryRefReader & brr, 
                          uint32_t nbytes=0, TxRef* parent=NULL, int32_t idx=-1);
+   void unserialize_1_(BinaryData    const & str) { unserialize(str); }
 
    void  pprint(ostream & os=cout, int nIndent=0, bool pBigendian=true);
 

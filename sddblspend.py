@@ -45,13 +45,6 @@ else:
    '1dice1Qf4Br5EYjj9rnHWqgMVYnQWehYG', \
    '1dice1e6pdhLzzWQq7yMidf6j8eAg7pkY' ])
 SDHASH160SET = set([addrStr_to_hash160(a) for a in SDADDRSET])
-
-#testTx = PyTx().unserialize(hex_to_binary('0100000001014dcf77a47d86a5e7a0378447a9fee11067fe313daa65c1fa76468c1875728a000000008a4730440220738355af6770c034b4b913a64d65aab9f22b1ef9006fdc64935be18447a4e08c02201fce7e0beecc3b30db04bd939e62a49e15060b401d412faefd350c9549befb2c01410455c4a969d0d52aa6d92f866aed9acf720cb0f8a0222057788413ad00c9b87f3594ada0c118b17df0c757450a3db64ea03de41a6acdc73d7fe95be51c1466f2dfffffffff0140420f00000000001976a91406f1b66e25393fabd2b23a237e4bdfd4c2c35fac88ac00000000'))
-#conflictTx = PyTx().unserialize(hex_to_binary('0100000001014dcf77a47d86a5e7a0378447a9fee11067fe313daa65c1fa76468c1875728a000000008a47304402206bd7ea583fa5cf688fc735606f8e812992ba785fb3723fe72017c17283a209a302201ae91890d69d458d6317848c5b1bf93d630f8f073feb5ee7192bd75a698a519901410455c4a969d0d52aa6d92f866aed9acf720cb0f8a0222057788413ad00c9b87f3594ada0c118b17df0c757450a3db64ea03de41a6acdc73d7fe95be51c1466f2dfffffffff0140420f00000000001976a91406f1b66e25393fabd2b23a237e4bdfd4c2c35fac88ac00000000'))
-#testTxHash = testTx.getHash()
-#conflictHash = conflictTx.getHash()
-#print 'Test Tx Hash:', binary_to_hex(testTxHash, endOut=BIGENDIAN)
-#print 'Conflict Tx Hash:', binary_to_hex(conflictHash, endOut=BIGENDIAN)
 #
 #
 ##########################################################################
@@ -65,13 +58,15 @@ mapOutPointAffectsBet  = {}
 mapOutPointSpentInTxID = {}
 mapOutPointAffectsVal  = {}
 
+outTx  = open('sddblspend_tx.txt', 'a')
+outBlk = open('sddblspend_blk.txt', 'a')
+
 def newTxFunc(pytxObj):
    totalVal = 0
    thisTxHash = pytxObj.getHash()
 
-   #if thisTxHash==conflictHash:
-      #print 'IGNORING CONFLICT'
-      #return
+   outTx.write( unixTimeToFormatStr(RightNow()) + ' : ')
+   outTx.write( b2h(thisTxHash) + ' : ' + b2h(pytxObj.serialize()) + '\n')
 
    thisTxSDBets = set([])
    zcConfTxMap[thisTxHash] = pytxObj.serialize()
@@ -109,6 +104,10 @@ def newTxFunc(pytxObj):
 
 def newBlockFunc(pyHeader, pyTxList):
    
+   outBlk.write( pyHeader.getHashHex(BIGENDIAN) + ' : ' + \
+                 str(len(pyTxList)) + ' : ' + \
+                 ''.join([b2h(tx.serialize()) for tx in pyTxList]) + '\n')
+
    # First clear out all SD-relevant bets that were just cemented in the blockchain
    skipSet = set([])
    for tx in pyTxList:
