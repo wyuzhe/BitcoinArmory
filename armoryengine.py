@@ -37,8 +37,8 @@
 
 
 # Version Numbers 
-BTCARMORY_VERSION    = (0, 87, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
-PYBTCWALLET_VERSION  = (2,  0, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
+BTCARMORY_VERSION      = (0, 87, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
+ARMORY_WALLET_VERSION  = (2,  0, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
 
 ARMORY_DONATION_ADDR = '1ArmoryXcfq7TnCSuZa9fQjRYwJ4bkRKfv'
 
@@ -313,6 +313,7 @@ class InvalidHashError(Exception): pass
 class BadInputError(Exception): pass
 class BadURIError(Exception): pass
 class CompressedKeyError(Exception): pass
+class UnrecognizedCrypto(Exception): pass
 
 
 
@@ -583,36 +584,57 @@ sys.excepthook = logexcept_override
 # (not unicode characters)
 DEFAULT_ENCODING = 'utf-8'
 
-def toBytes(theStr):
+def toBytes(theStr, theEncoding=DEFAULT_ENCODING):
    if isinstance(theStr, unicode):
-      return theStr.encode(DEFAULT_ENCODING)
+      return theStr.encode(theEncoding)
    elif isinstance(theStr, str):
       return theStr
    else:
       LOGERROR('toBytes() not been defined for input: %s', str(type(theStr)))
 
-def toUnicode(theStr):
+def toUnicode(theStr, theEncoding=DEFAULT_ENCODING):
    if isinstance(theStr, unicode):
       return theStr
    elif isinstance(theStr, str):
-      return unicode(theStr, DEFAULT_ENCODING)
+      return unicode(theStr, theEncoding)
    else:
       LOGERROR('toUnicode() not been defined for input: %s', str(type(theStr)))
 
-def lenBytes(theStr):
+def lenBytes(theStr, theEncoding=DEFAULT_ENCODING):
    if isinstance(theStr, unicode):
-      return len( toBytes(theStr) )
+      return len( toBytes(theStr,theEncoding) )
    elif isinstance(theStr, str):
       return len(theStr)
    else:
       LOGERROR('lenBytes() not been defined for input: %s', str(type(theStr)))
 
-def lenChars(theStr):
+def lenChars(theStr, theEncoding=DEFAULT_ENCODING):
    if isinstance(theStr, basestring):
-      return len(toUnicode(theStr))
+      return len(toUnicode(theStr,theEncoding))
    else:
       LOGERROR('lenChars() not been defined for input: %s', str(type(theStr)))
 
+def truncUnicode(uStr, maxBytes):
+   if lenBytes(uStr)<=maxBytes:
+      return uStr
+
+   if lenBytes(uStr) > 2**20:
+      LOGERROR('Bailing on truncate a unicode string over 1 MB...')
+      raise BadInputError
+
+   # Drop 100 chars at a time if it's really oversized
+   while lenBytes(uStr) > maxBytes+600:
+      uStr = uStr[:-100]
+
+   # Drop 6 chars at a time once it's close
+   while lenBytes(uStr) > maxBytes+36:
+      uStr = uStr[:-6]
+      
+   # Only remove one unicode char at a time at the end, to avoid overshooting
+   while lenBytes(uStr) > maxBytes:
+      uStr = uStr[:-1]
+
+   return uStr
 
 
 if not locals().has_key('_'):
@@ -1007,8 +1029,77 @@ def binary_to_int(b, endIn=LITTLEENDIAN):
    h = binary_to_hex(b, endIn, LITTLEENDIAN)
    return hex_to_int(h)
 
-##### INT/BITS #####
 
+class BitSet(object):
+   """
+   A simple class for storing, serializing and reading BitSets
+   It's not going to be fast, but it doesn't need to be, either.
+   It's just going to store binary flags for various file data.
+   """
+   def __init__(self, nBits):
+      self.bits = [0]*nBits
+
+   def setBit(self, idx, val):
+      self.bits[idx] = (1 if val else 0)
+
+   def setBits(self, idxList, val):
+      setToVal = (1 if val else 0)
+      for i in idxList:
+         self.bits[i] = setToVal
+
+   def getBit(self, i):
+      return self.bits[i]
+
+   def trunc(self, nbits):
+      if nbits < len(self.bits):
+         self.bits = self.bits[:nbits]
+
+   def expand(self, nbits):
+      while len(self.bits) < nbits:
+         self.bits.append(0)
+
+   def changeSize(self, nbits):
+      self.expand(nbits)
+      self.trunc(nbits)
+
+   def toValue(self, exp=0):
+      n = 0
+      for i,bit in enumerate(self.bits):
+         n += bit * 2**i
+      if exp:
+         self.expand(exp)
+      return n
+
+   def fromValue(self, val, nbits=0):
+      if nbits==0:
+         if len(self.bits)==0:   raise BadInputError
+      else:
+         self.__init__(nbits)
+      i=0
+      while val>0:
+         val,r = divmod(val,2)
+         self.bits[i] = r
+         i+=1
+      return self
+
+   def serialize(self):
+      return int_to_binary(self.toValue(), widthBytes=(len(self.bits)-1)/8+1)
+
+   def unserialize(self, binStr):
+      binary_to_int(binStr)
+      self.fromValue( binary_to_int(binStr), len(binStr)*8)
+      return self
+
+   def toStr01(self):
+      return ''.join([str(i) for i in self.bits])
+
+   def printASCII(self):
+      print self.toStr01()
+
+
+
+##### INT/BITS #####
+# Some old methods still needed by the old PyBtcAddress class
 def int_to_bitset(i, widthBytes=0):
    bitsOut = []
    while i>0:
@@ -1024,7 +1115,6 @@ def bitset_to_int(bitset):
    for i,bit in enumerate(bitset):
       n += (0 if bit=='0' else 1) * 2**i
    return n
-
 
 
 EmptyHash = hex_to_binary('00'*32)
@@ -1412,6 +1502,10 @@ class BinaryPacker(object):
    def __str__(self):
       return self.getBinaryString()
 
+   def addPaddingMod(self, mod):
+      div,mod = divmod(self.getSize(), 32)
+      if not mod==0:
+         self.put(BINARY_CHUNK, '\x00'*(32-mod))
 
    def put(self, varType, theData, width=None, endianness=LITTLEENDIAN):
       """
@@ -1453,6 +1547,18 @@ class BinaryPacker(object):
             self.binaryConcat += theData.ljust(width, '\x00')
       else:
          raise PackerError, "Var type not recognized!  VarType="+str(varType)
+
+
+
+################################################################################
+def makeBinaryUnpacker(obj):
+   if isinstance(obj, str):
+      return BinaryUnpacker(obj)
+   elif isinstance(obj, unicode):
+      return BinaryUnpacker(toBytes(obj))
+   elif isinstance(obj, BinaryUnpacker):
+      return obj
+
 
 ################################################################################
 
@@ -1795,13 +1901,10 @@ def extendKey(parent, *args):
 #     Encrypted  -  Have private key but it is encrypted
 #     Plain      -  Take a guess...
 PRIV_KEY_AVAIL = enum('None', 'NextUnlock', 'Encrypted', 'Plain')
-
 ADDRESSTYPE = enum('Deterministic', 'Imported', 'Unknown')
 
 UNKNOWN_TIME   = UINT64_MAX
 UNKNOWN_BLOCK  = UINT32_MAX
-
-
 
 ################################################################################
 class ArmoryAddress(object):
@@ -1838,6 +1941,10 @@ class ArmoryAddress(object):
       Chaincode   (32 bytes) :  Public key for this address
 
    """
+
+   FILECODE = 'ADDR'
+
+
    #############################################################################
    def __init__(self):
       """
@@ -1845,7 +1952,7 @@ class ArmoryAddress(object):
       because that is what is required by the C++ code.  See EncryptionUtils.h
       to see that available methods.
       """
-      self.versionInt            = getVersionInt((1,35,0,0)) # created-by wallet ver
+      self.versionInt            = getVersionInt(PYBTCWALLET_VERSION) # created-by wallet ver
       self.binAddr160            = ''                                     
       self.binPubKey33or65       = SecureBinaryData()  # Compressed or not
       self.binPrivKey32_Encr     = SecureBinaryData()  # BIG-ENDIAN
@@ -1878,7 +1985,7 @@ class ArmoryAddress(object):
       # or addresses.  Leave some room to have PyBtcAddress assume other types 
       # of addresses (such as ARMORY_1.35 addresses)
       self.addressSource  = 'ARMORY'.ljust(12, '\x00')
-      self.addressVersion = getVersionInt(PYBTCWALLET_VERSION) 
+      self.addressVersion = getVersionInt(ARMORY_WALLET_VERSION) 
       self.extraAttributes = {}
 
 
@@ -2684,10 +2791,10 @@ class ArmoryAddress(object):
       # whole wallet so badly we have to go hex-diving to figure out what
       # happened.
       stream = BinaryPacker()
-      stream.put(BINARY_CHUNK,   self.binAddr160,                    width=20)
-      stream.put(BINARY_CHUNK,   self.addressSource,                 width= 8)
+      stream.put(BINARY_CHUNK,   self.addressSource,                 width=12)
       stream.put(UINT32,         self.versionInt)
       stream.put(UINT64,         bitset_to_int(flags))
+      stream.put(BINARY_CHUNK,   self.binAddr160,                    width=20)
 
       # Key relevance info (first 32
       stream.put(UINT64,         self.whenCreated[0])
@@ -2731,6 +2838,16 @@ class ArmoryAddress(object):
       else:
          serializedData = BinaryUnpacker( toUnpack )
 
+      self.addressSource = serializedData.get(UINT32)
+      self.versionInt    = serializedData.get(UINT32)
+
+      # If this is an old address... use the old version of Armory addresses
+      if self.addressSource.lower().startswith('armory') and \
+         self.versionInt < getVersionInt((2,0,0,0)):
+         serializedData.rewind(8)
+         self.__class__ = PyBtcAddress_1_35
+         return self.unserialize(serializedData)
+
 
       # Start with a fresh new address
       self.__init__()
@@ -2739,9 +2856,10 @@ class ArmoryAddress(object):
       raw = lambda x: '' if x=='\x00'*len(x) else x
       sec = lambda x: SecureBinaryData(raw(x))
 
-      self.binAddr160         = raw(serializedData.get(BINARY_CHUNK, 20))
+      self.addressSource      =     serializedData.get(UINT32)
       self.versionInt         =     serializedData.get(UINT32)
       flags                   =     serializedData.get(UINT64)
+      self.binAddr160         = raw(serializedData.get(BINARY_CHUNK, 20))
 
       # Parse the flags
       flags = int_to_bitset(flags, widthBytes=8)
@@ -11490,12 +11608,13 @@ def SaveTimingsCSV(fname):
 
 
 
-
-
+CRYPT_KEY_SRC = enum('PASSWD', 'PARENT', 'OBJECT')
+CRYPT_IV_SRC  = enum('STORED', 'PUBKEY')
+NULLSTR8 = '\x00'*8
 
 ################################################################################
 ################################################################################
-class EncryptInfo(object):
+class EncryptionDef(object):
    """
    This can be attached to WalletEntries to define how they should be encrypted
    or just the private keys themselves.  The idea is to have a uniform way of
@@ -11524,66 +11643,1141 @@ class EncryptInfo(object):
       the specified data"
 
    Master Private Key is also in wallet:
-             EncryptionInfo( '11112222aaaabbbb',  \
-                             'ccccdddd88889999',  \
-                             'PASSPHRASEPLEASE' , \
-                             '<IVStoredWithObj>')
+             EncryptionDef( '11112222aaaabbbb',  \
+                            'ccccdddd88889999',  \
+                            'PASSPHRASEPLEASE' , \
+                            '<IVStoredWithObj>')
 
    Private key encryption with a master private key:
-             EncryptionInfo( '0000000000000000',  \
-                             'ccccdddd88889999',  \
-                             '12345678abcdefab' , \
-                             'PUBLICKEYHASH160')
+             EncryptionDef( '0000000000000000',  \
+                            'ccccdddd88889999',  \
+                            '12345678abcdefab' , \
+                            'PUBLICKEYHASH160')
 
    Private key encryption with just KDF (no master):
-             EncryptionInfo( '11112222aaaabbbb',  \
-                             'ccccdddd88889999',  \
-                             'PASSPHRASEPLEASE' , \
-                             'PUBLICKEYHASH160')
+             EncryptionDef( '11112222aaaabbbb',  \
+                            'ccccdddd88889999',  \
+                            'PASSPHRASEPLEASE' , \
+                            'PUBLICKEYHASH160')
    
    Encrypt P2SH Scripts and Labels in other file
-             EncryptionInfo( '0000000000000000'  \
-                             'ccccdddd88889999', \
-                             'PARENTCHAINCODE' , \
-                             '<IVStoredWithObj>')
+             EncryptionDef( '0000000000000000', \
+                            'ccccdddd88889999', \
+                            'PARENTCHAINCODE' , \
+                            'IVSTOREDWITHOBJ')
 
    Encrypt Public Keys & Addresses as WalletEntries:
-             EncryptionInfo( '11112222aaaabbbb',  \
-                             'ccccdddd88889999',  \
-                             'ROOTCHAINCODE256' , \
-                             '<IVStoredWithObj>')
+             EncryptionDef( '11112222aaaabbbb',  \
+                            'ccccdddd88889999',  \
+                            'ROOTCHAINCODE256' , \
+                            'IVSTOREDWITHOBJ')
+
+   No encryption 
+             EncryptionDef( '0000000000000000', \
+                            '0000000000000000', \
+                            '0000000000000000', \
+                            '0000000000000000')
    """
 
-   def __init__(self, kdfAlgo='\x00'*8, \
-                      encrAlgo='\x00'*8, \
-                      keysrc='\x00'*8, \
-                      ivsrc='\x00'*8):
+
+
+   KNOWN_CRYPTO = ['AE256CFB', 'AE256CBC']
+
+   ############################################################################
+   def __init__(self, kdfAlgo=NULLSTR8, \
+                      encrAlgo=NULLSTR8, \
+                      keysrc=NULLSTR8, \
+                      ivsrc=NULLSTR8):
 
       if kdfAlgo==None:
-         kdfAlgo = '\x00'*8
-      self.kdfAlgoID    = kdfAlgo
+         kdfAlgo = NULLSTR8
+
+      # Now perform the encryption using the encryption key
+      if (not kdfAlgo==NULLSTR8) and (not KdfObject.kdfIsRegistered(kdfAlgo)):
+         LOGERROR('Unrecognized KDF ID: %s', binary_to_hex(kdfAlgo))
+         raise UnrecognizedCrypto
+
+      # Now perform the encryption using the encryption key
+      if not (encrAlgo==NULLSTR8) and (not encrAlgo in self.KNOWN_CRYPTO):
+         LOGERROR('Unrecognized encryption algorithm: %s', encrAlgo)
+         raise UnrecognizedCrypto
+
+      self.kdfObjID     = kdfAlgo
       self.encryptAlgo  = encrAlgo
       self.keySource    = keysrc
       self.ivSource     = ivsrc
 
-   def useEncryption(self):
-      return (not self.kdf=='\x00'*8) or (not self.encryptAlgo=='\x00'*8)
 
+   ############################################################################
+   def noEncryption(self):
+      return (self.kdfObjID==NULLSTR8 and \
+              self.encryptAlgo==NULLSTR8 and \
+              self.keySource==NULLSTR8 and \
+              self.ivSource==NULLSTR8)
+
+   ############################################################################
+   def isEncrypted(self):
+      return not self.noEncryption()
+
+   ############################################################################
+   def useKeyDerivFunc(self):
+      return (not self.kdf==NULLSTR8)
+
+   ############################################################################
+   def hasStoredIV(self):
+      if self.ivSource==NULLSTR8:
+         LOGWARNING('hasStoredIV() called on object with ID_ZERO.  All ')
+         LOGWARNING('encryption objects should have a stored IV, or sentinel')
+         return False
+
+      # A non-zero ivSource is "stored" if it's not one of the sentinel values
+      return (self.getEncryptIV()[0] == CRYPT_IV_SRC.STORED)
+
+
+   ############################################################################
+   def setIV(self, newIV):
+      if not self.ivSource==NULLSTR8:
+         LOGWARNING('Setting IV on einfo object with non-zero IV')
+      
+      if not isinstance(newIV, str):
+         newIV = newIV.toBinStr()
+
+      if len(newIV)>8:
+         LOGWARNING('Supplied IV is not 8 bytes. Truncating.')
+      elif len(newIV)<8:
+         LOGERROR('Supplied IV is less than 8 bytes.  Aborting')
+         raise BadInputError
+
+      self.ivSource = newIV
+
+   ############################################################################
+   def getEncryptKeySrc(self):
+      if self.keySource=='PARCHAIN':
+         return (CRYPT_KEY_SRC.PARENT, '')
+      elif self.keySource=='PASSWORD':
+         return (CRYPT_KEY_SRC.PASSWD, '')
+      else:
+         return (CRYPT_KEY_SRC.OBJECT, self.keySource)
+
+
+   ############################################################################
+   def getEncryptIVSrc(self):
+      if self.ivSource=='PUBKEY20':
+         return (CRYPT_IV_SRC.PUBKEY, '')
+      else:
+         return (CRYPT_IV_SRC.STORED, self.ivSource)
+
+      
+
+   ############################################################################
    def serialize(self):
       bp = BinaryPacker()
-      bp.put(BINARY_CHUNK,  self.kdfAlgoID,     widthBytes=8)
+      bp.put(BINARY_CHUNK,  self.kdfObjID,      widthBytes=8)
       bp.put(BINARY_CHUNK,  self.encryptAlgo,   widthBytes=8)
       bp.put(BINARY_CHUNK,  self.keySource,     widthBytes=8)
       bp.put(BINARY_CHUNK,  self.ivSource,      widthBytes=8)
 
+
+   ############################################################################
    def unserialize(self, theStr):
-      bu = BinaryUnpacker(theStr)
-      self.kdfAlgoID   = bu.get(BINARY_CHUNK, 8)
+      bu = makeBinaryUnpacker(toUnpack)
+      self.kdfObjID    = bu.get(BINARY_CHUNK, 8)
       self.encryptAlgo = bu.get(BINARY_CHUNK, 8)
       self.keySource   = bu.get(BINARY_CHUNK, 8)
       self.ivSource    = bu.get(BINARY_CHUNK, 8)
       return self
        
+
+
+   ############################################################################
+   def encrypt(self, plaintext, keydata, ivdata=None):
+      """
+      Here, "keydata" may actually be a passphrase entered by the user, which 
+      will get stretched into the actual encryption key.  If there is no KDF,
+      then keydata is simply the encryption key, provided by the calling func
+      while likely checked the keySource and ivSource and fetched appropriate 
+      data for encryption/decryption.
+      """
+
+      # Make sure all the data is in SBD form -- will also be easier to destroy
+      plaintext = SecureBinaryData(plaintext)
+      keydata   = SecureBinaryData(keydata)
+
+      # IV data might actually be part of this object, not supplied
+      if not self.hasStoredIV():
+         if not ivdata:
+            LOGERROR('Cannot encrypt without initialization vector.')
+            return
+         ivdata = SecureBinaryData(ivdata)
+      else:
+         if ivdata:
+            LOGWARN('EncryptionDef obj has stored IV and was supplied one!')
+            LOGWARN('Using the stored IV...')
+         ivdata = self.getEncryptIVSrc()[1]
+
+
+      # Apply KDf if it's requested
+      if self.useKeyDerivFunc(): 
+         if not KdfObject.kdfIsRegistered(self.kdfObjID):
+            LOGERROR('KDF is not registered: %s', binary_to_hex(self.kdfObjID))
+            cipher = SecureBinaryData(0)
+         keydata = KdfObject.REGISTERED_KDFS[self.kdfObjID].execKDF(keydata)
+
+      # Now perform the encryption using the encryption key
+      if self.encryptAlgo=='AE256CFB':
+         cipher = CryptoAES().EncryptCFB(plaintext, keydata, ivdata)
+      elif self.encryptAlgo=='AE256CBC':
+         cipher = CryptoAES().EncryptCBC(plaintext, keydata, ivdata)
+      else:
+         LOGERROR('Unrecognized encryption algorithm: %s', self.encryptAlgo)
+         cipher = SecureBinaryData(0)
+         
+      plaintext.destroy()
+      keydata.destroy()
+      ivdata.destroy()
+      return cipher
+
+
+   ############################################################################
+   def decrypt(self, ciphertext, keydata, ivdata):
+      """
+      Here, "keydata" may actually be a passphrase entered by the user, which 
+      will get stretched into the actual encryption key.  If there is no KDF,
+      then keydata is simply the encryption key, provided by the calling func
+      while likely checking the keySource and ivSource and fetched appropriate 
+      data for encryption/decryption.
+      """
+
+      # Make sure all the data is in SBD form -- will also be easier to destroy
+      ciphertext = SecureBinaryData(ciphertext)
+      keydata    = SecureBinaryData(keydata)
+
+      # IV data might actually be part of this object, not supplied
+      if not self.hasStoredIV():
+         if not ivdata:
+            LOGERROR('Cannot encrypt without initialization vector.')
+            return
+         ivdata = SecureBinaryData(ivdata)
+      else:
+         if ivdata:
+            LOGWARN('EncryptionDef obj has stored IV and was supplied one!')
+            LOGWARN('Using the stored IV...')
+         ivdata = self.getEncryptIVSrc()[1]
+
+      # Apply KDf if it's requested
+      if self.useKeyDerivFunc(): 
+         if not self.kdfObjID in KdfObject.REGISTERED_KDFS:
+            LOGERROR('KDF is not registered: %s', binary_to_hex(self.kdfObjID))
+            plain = SecureBinaryData(0)
+         keydata = REGISTERED_KDFS[self.kdfObjID].execKDF(keydata)
+
+      # Now perform the decryption using the key
+      if self.encryptAlgo=='AE256CFB':
+         plain = CryptoAES().DecryptCFB(ciphertext, keydata, ivdata)
+      elif self.encryptAlgo=='AE256CBC':
+         plain = CryptoAES().DecryptCBC(ciphertext, keydata, ivdata)
+      else:
+         LOGERROR('Unrecognized encryption algorithm: %s', self.encryptAlgo)
+         plain = SecureBinaryData(0)
+         
+      ciphertext.destroy()
+      keydata.destroy()
+      ivdata.destroy()
+      return plain
+
+
+#############################################################################
+class KdfObject(object):
+   """
+   Note that there is only one real KDF *algorithm* here, but each wallet
+   has system-specific parameters required to execute the KDF (32-byte salt
+   and memory required).  Therefore, there may be multiple KdfObjects even
+   though they are all using the same underlying algorithm.
+
+   ROMix-Over-2 is based on Colin Percival's ROMix algorithm which was the
+   provably-memory-hard key stretching algorithm that preceded "scrypt."  
+   ROMix was chosen because of its simplicity, despite its lack of flexibility
+   in choosing memory-vs-speed tradeoff.  It is "-over-2" because the number
+   of LUT operations is cut in half relative to described ROMix algorithm,
+   in order to allow larger memory usage on slower systems.
+   """
+   KDF_ALGORITHMS = { 'identity': [], 
+                      'romixov2': ['memReqd','numIter','salt'] }
+   REGISTERED_KDFS = { }
+
+   #############################################################################
+   def __init__(self, kdfName=None, **params):
+
+      if kdfName==None:
+         self.kdfName = ''
+         self.kdf = None
+         def errorkdf(x):
+            LOGEXCEPT('KDF not initialized!')
+            return SecureBinaryData(0)
+         self.execKDF = errorkdf
+         return
+         
+      if not kdfName.lower() in self.KDF_ALGORITHMS:
+         LOGERROR('Attempted to create unknown KDF object:  name=%s', kdfName)
+         return
+
+      reqdArgs = self.KDF_ALGORITHMS[kdfName.lower()]
+      for arg in reqdArgs:
+         if not arg in params:
+            LOGERROR('KDF name=%s:   not enough input arguments', kdfName)
+            LOGERROR('Required args: %s', ''.join(reqdArgs))
+            return
+            
+
+      # Right now there is only one algo.  You can add your own via "KDF_ALGORITHMS" 
+      # and then updating this method to create a callable KDF object
+      if kdfName.lower()=='identity':
+         self.execKDF = lambda x: SecureBinaryData(x)
+      if kdfName.lower()=='romixov2':
+
+         memReqd = params['memReqd']
+         numIter = params['numIter']
+         salt    = params['salt'   ]
+
+         # Make sure that non-SBD input is converted to SBD
+         saltSBD = SecureBinaryData(salt)
+
+         if memReqd>2**31:
+            LOGERROR('Invalid memory for KDF.  Must be 2GB or less.')
+            return
+         
+
+         if saltSBD.getSize()==0:
+            LOGERROR('Zero-length salt supplied with KDF. If creating new, use ')
+            LOGERROR('     salt=SecureBinaryData().GenerateRandom(16)')
+            return
+            
+         self.kdfName = 'ROMixOv2'
+         self.memReqd = memReqd
+         self.numIter = numIter
+         self.salt    = saltSBD
+         self.kdf = KdfRomix(self.memReqd, self.numIter, self.salt) 
+         self.execKDF = lambda pwd: self.kdf.DeriveKey( SecureBinaryData(pwd) )
+
+      else:
+         LOGERROR('Unrecognized KDF name')
+      
+
+   #############################################################################
+   def execKDF(self, passphrase):
+      # This method is normally assigned in the setKDF function.  This is here
+      # to throw an error in case it isn't
+      LOGERROR('KDF.execKDF() was never overwritten.  No KDF to execute')
+      raise EncryptionError
+
+   #############################################################################
+   def getKdfID(self):
+      return computeChecksum(self.serialize(), 8)
+      
+   ############################################################################
+   # STATIC METHOD (no self)
+   def registerKDF(kdfObj):
+      LOGINFO('Registering KDF object: %s', binary_to_hex(kdfObj.getKdfID())
+      self.REGISTERED_KDFS[kdfObj.getKdfID()] = kdfObj
+
+   ############################################################################
+   # STATIC METHOD (no self)
+   def kdfIsRegistered(kdfObjID):
+      return self.REGISTERED_KDFS.has_key(kdfObjID)
+
+   ############################################################################
+   # STATIC METHOD (no self)
+   def getRegisteredKDF(kdfID):
+      if not self.kdfIsRegistered(kdfID):
+         LOGERROR('KDF is not registered: %s', binary_to_hex(kdfID))
+         raise UnrecognizedCrypto
+      return self.REGISTERED_KDFS[kdfID] 
+
+   #############################################################################
+   def serialize(self):
+      bp = BinaryPacker()
+      if self.kdfName.lower()=='romixov2':
+         bp.put(BINARY_CHUNK, self.kdfname,           widthBytes= 8)
+         bp.put(BINARY_CHUNK, 'SHA512',               widthBytes= 8)
+         bp.put(UINT32,       self.memReqd)          #widthBytes= 4
+         bp.put(UINT32,       self.numIter)          #widthBytes= 4
+         bp.put(BINARY_CHUNK, self.salt.toBinStr()),  widthBytes=32)
+      elif self.kdfName.lower()=='identity':
+         bp.put(BINARY_CHUNK, 'Identity',             widthBytes= 8)
+      return bp.getBinaryString()
+      
+   #############################################################################
+   def unserialize(self, toUnpack):
+      bu = makeBinaryUnpacker(toUnpack)
+      kdfName = bu.get(BINARY_CHUNK, 8)
+      if not kdfName.lower() in self.KDF_ALGORITHMS:
+         LOGERROR('Unknown KDF in unserialize:  %s', kdfName)
+         return None
+     
+      # Start the KDF-specific processing
+      if kdfName.lower()=='identity':
+         self.__init__('Identity')
+      elif kdfName.lower()=='romixov2':
+         useHash = bu.get(BINARY_CHUNK,  8)
+         if not useHash.lower().startswith('sha512'):
+            LOGERROR('No pre-programmed KDFs use hash function: %s', useHash)
+            return
+         mem = bu.get(UINT32)
+         nIter = bu.get(UINT32)
+         slt = bu.get(BINARY_CHUNK, 32)
+         self.__init__(kdfName, memReqd=mem, numIter=nIter, salt=slt)
+
+
+
+   #############################################################################
+   def createNewKDF(self, kdfName, targSec=0.25, maxMem=32*1024*1024):
+      
+      LOGINFO("Creating new KDF object")
+
+      if not (0 <= targSec <= 20):
+         LOGERROR('Must use positive time <= 20 sec.  Use 0 for min settings')
+         return None
+
+      if not (32*1024 <= maxMem <= 2**31):
+         LOGERROR('Must use maximum memory between 32 kB and 2048 MB')
+         return None
+
+      if not kdfName.lower() in self.KDF_ALGORITHMS:
+         LOGERROR('Unknown KDF name in createNewKDF:  %s', kdfName)
+         return None
+
+      if kdfName.lower()=='identity':
+         self.__init__('Identity')
+         LOGINFO('Created identity identity KDF')
+         return self
+      elif kdfName.lower()=='romixov2':
+         kdf = KdfRomix()
+         kdf.computeKdfParams(targetSec, maxMem)
+   
+         mem   = kdf.getMemoryReqtBytes()
+         nIter = kdf.getNumIterations()
+         slt   = kdf.getSalt().toBinStr()
+         self.__init__('ROMixOv2', memReqd=mem, numIter=nIter, salt=slt)
+
+         LOGINFO('Created new KDF with the following parameters:')
+         LOGINFO('\tAlgorithm: %s', kdfName)
+         LOGINFO('\t%d kB',  (int(mem)/1024))
+         LOGINFO('\t%d iterations', nIter)
+         LOGINFO('\tSalt: %s', self.kdf.getSalt().toHexStr())
+         return self
+
+
+
+#############################################################################
+#############################################################################
+class EncryptionKey(object):
+
+   #############################################################################
+   def __init__(self, keytype=None, keyid=None, einfo=None, ekey=None, etest=None, ptest=None):
+      self.ekeyType           = keytype if keytype else SecureBinaryData(0)
+      self.ekeyID             = keyid   if keyid   else SecureBinaryData(0)
+      self.masterKeyEncrypted = SecureBinaryData(ekey)  if ekey  else SecureBinaryData(0)
+      self.testStringEncr     = SecureBinaryData(etest) if etest else SecureBinaryData(0)
+      self.testStringPlain    = SecureBinaryData(ptest) if ptest else SecureBinaryData(0)
+
+      self.encryptInfo = EncryptionDef(None)
+      if einfo:
+         if isinstance(einfo, str):
+            self.encryptInfo.unserialize(einfo)
+         elif isinstance(einfo, EncryptionDef):
+            self.encryptInfo = einfo
+         else:
+            LOGERROR('Unrecognized einfo object in EncryptionKey')
+            raise UnrecognizedCrypto
+
+      # We may cache the decrypted key      
+      self.masterKeyPlain      = SecureBinaryData(0)
+      self.timeUnlocked        = 0
+      self.lockTimeout         = 10
+
+
+   #############################################################################
+   def EncryptionKeyToID(rawkey):
+      # Essentially a hash of the 32-byte key and its type (i.e. 'AE256CFB')
+      rawkey = SecureBinaryData(rawkey)
+      hmac = HDWalletCrypto().HMAC_SHA512(rawkey, self.ekeyType)
+      rawkey.destroy()
+      return hmac.toBinStr()[:8]
+
+   #############################################################################
+   def verifyPassphrase(self, passphrase):
+      passphrase = SecureBinaryData(passphrase)
+      tempKey = self.encryptInfo.decrypt(self.masterKeyEncrypted, passphrase)
+      out = (self.EncryptionKeyToID(tempKey)==self.ekeyID)
+      passphrase.destroy()
+      tempKey.destroy()
+      return out
+
+
+   #############################################################################
+   def unlock(self, passphrase):
+      LOGDEBUG('Unlocking encryption key %s', self.ekeyID)
+      try:
+         passphrase = SecureBinaryData(passphrase)
+         self.masterKeyPlain = \
+                  self.encryptInfo.decrypt(self.masterKeyEncrypted, passphrase)
+         if not self.EncryptionKeyToID(self.masterKeyPlain)==self.ekeyID:
+            LOGERROR('Wrong passphrase passed to EKEY unlock function.')
+            self.masterKeyPlain.destroy()
+            return False
+         self.timeUnlocked = RightNow()
+         return True
+      except:
+         passphrase.destroy()
+         raise
+
+
+
+   #############################################################################
+   def lock(self, passphrase=None):
+      LOGDEBUG('Locking encryption key %s', self.ekeyID)
+      if self.masterKeyEncrypted.getSize()==0:
+         if passphrase==None:
+            LOGERROR('No encrypted master key available and no passphrase for lock()')
+            LOGERROR('Deleting it anyway.')
+         else:
+            passphrase = SecureBinaryData(passphrase)
+            self.masterKeyEncrypted = \
+                     self.encryptInfo.encrypt(self.masterKeyPlain, passphrase)
+            passphrase.destroy()
+
+      self.masterKeyPlain.destroy()
+
+
+
+   #############################################################################
+   def checkLockTimeout(self): 
+      if RightNow() > self.timeUnlocked+self.lockTimeout:
+         self.lock()
+
+
+   #############################################################################
+   def isLocked(self):
+      return (self.masterKeyPlain.getSize() == 0)
+
+
+   #############################################################################
+   def serialize(self):
+      bp = BinaryPacker()
+      bp.put(BINARY_CHUNK, self.ekeyType,                  widthBytes= 8)
+      bp.put(BINARY_CHUNK, self.ekeyID,                    widthBytes= 8)
+      bp.put(BINARY_CHUNK, self.encryptInfo.serialize(),   widthBytes=32)
+      bp.put(BINARY_CHUNK, self.masterKeyEncrypted,        widthBytes=32)
+      bp.put(BINARY_CHUNK, self.testStringEncr,            widthBytes=32)
+      bp.put(BINARY_CHUNK, self.testStringPlain,           widthBytes=32)
+      return bp.getBinaryString()
+
+
+   #############################################################################
+   def unserialize(self, strData):
+      bu = makeBinaryUnpacker(strData)
+      ekeyType = bu.get(BINARY_CHUNK,  8)
+      ekeyID   = bu.get(BINARY_CHUNK,  8)
+      einfoStr = bu.get(BINARY_CHUNK, 32)
+      emaster  = bu.get(BINARY_CHUNK, 32)
+      eteststr = bu.get(BINARY_CHUNK, 32)
+      pteststr = bu.get(BINARY_CHUNK, 32)
+      self.__init__(ekeyID, ekeyType, einfoStr, emaster, eteststr, pteststr)
+      return self
+
+
+   #############################################################################
+   def createNewMasterKey(self, encryptKeyKDF, encryptKeyAlgo, passphrase, \
+                                                         withTestString=True, \
+                                                         masterKeyType=None):
+      """
+      This method assumes you already have a KDF you want to use and is 
+      referenced by the first arg.  If not, please create the KDF and
+      add it to the wallet first (and register it with KdfObject before 
+      using this method.
+
+      Generally, EncryptionDef objects can have a null KDF, but not for 
+      master encryption key objects 
+      """
+
+      LOGINFO('Generating new master key')
+
+      # Check for the existence of the specified KDF      
+      if isinstance(encryptKeyKDF, KdfObject):
+         kdfID = encryptKeyKDF.getKdfID()
+         if not KdfObject.kdfIsRegistered(kdfID):
+            LOGERROR('Somehow we got a KDF object that is not registered')
+            LOGERROR('Not going to use it, because if it is not registered, ')
+            LOGERROR('it also may not be part of the wallet, yet.')
+            raise UnrecognizedCrypto
+      elif isinstance(encryptKeyKDF, str):
+         kdfID = encryptKeyKDF[:]
+         if not KdfObject.kdfIsRegistered(kdfID):
+            LOGERROR('Key Deriv Func is not registered.  Cannot create new ')
+            LOGERROR('master key without using a known KDF.  Can create a ')
+            LOGERROR('new KDF via ')
+            LOGERROR('KdfObject().createNewKDF("ROMixOv2", targSec=X, maxMem=Y)')
+            raise UnrecognizedCrypto
+      else:
+         LOGERROR('Bad argument type for "encryptKeyKDF"')
+         raise BadInputError
+
+
+      # Check that we recognize the encryption algorithm
+      # This is the algorithm used to encrypt the master key itself
+      if not encryptKeyAlgo in EncryptionDef.KNOWN_CRYPTO:
+         LOGERROR('Unrecognized crypto algorithm: %s', encryptKeyAlgo)
+         raise UnrecognizedCrypto
+
+      # The masterKeyType is the encryption algorithm that is intended to
+      # be used with this key (once it is decrypted to unlock the wallet).
+      # This will usually be the same as the encryptKeyAlgo, but I guess 
+      # it doesn't have to be
+      if masterKeyType==None:
+         self.ekeyType = encryptKeyAlgo
+      else:
+         if not masterKeyType in EncryptionDef.KNOWN_CRYPTO:
+            LOGERROR('Unrecognized crypto algorithm: %s', masterKeyType)
+            raise UnrecognizedCrypto
+         self.ekeyType = masterKeyType
+         
+      # Master encryption keys will always be stored with 
+      storedIV = SecureBinaryData().GenerateRandom(8)
+      self.encryptInfo = EncryptionDef(kdfID, encryptKeyAlgo, 'PASSWORD', storedIV)
+
+      # Create the master key...
+      self.masterKeyPlain = SecureBinaryData().GenerateRandom(32)
+      self.ekeyID = self.EncryptionKeyToID(self.masterKeyPlain)
+      self.masterKeyEncrypted = self.encryptInfo.encrypt(self.masterKeyPlain,  passphrase)
+
+      if not withTestString:
+         self.testStringPlain = '\x00'*32
+         self.testStringEncr  = '\x00'*32
+      else:
+         rand16 = SecureBinaryData().GenerateRandom(16)
+         self.testStringPlain = SecureBinaryData('ARMORYENCRYPTION') + rand16
+         testStrIV = self.ekeyID*2  # 
+         if encryptKeyAlgo=='AE256CBC': 
+            self.testStringEncr = CryptoAES().EncryptCBC(self.testStringPlain, \
+                                                         self.masterKeyPlain, \
+                                                         testStrIV)
+         elif encryptKeyAlgo=='AE256CFB': 
+            self.testStringEncr = CryptoAES().EncryptCFB(self.testStringPlain, \
+                                                         self.masterKeyPlain, \
+                                                         testStrIV)
+         else:
+            LOGERROR('Unrecognized encryption algorithm')
+      
+      self.masterKeyPlain.destroy()
+
+      LOGINFO('Finished creating new master key:')
+      LOGINFO('\tKDF:     %s', binary_to_hex(kdfID))
+      LOGINFO('\tCrypto:  %s', encryptKeyAlgo)
+      LOGINFO('\tTestStr: %s', binary_to_hex(self.testStringPlain[16:])
+
+
+   #############################################################################
+   def createKeyRecoveryChallenge(self, useremail, userhints):
+      """
+      If the encryption key was created with a test string, this function will
+      return all the information needed for someone to start brute-forcing it.
+      This is so that there is *SOME* recourse for users that were dumb enough
+      to not make any backups, and then forget their passphrase.  The guesses
+      still have to go through the KDf, but this recovery challenge can be 
+      distributed to hired computing resources without actually giving up their
+      wallet -- i.e. the people racing to help the user the unlock their wallet 
+      (and presumably get some portion/bounty), can know that they've found the
+      answer without actually getting access to the wallet.
+
+      Without the test strings, the user has to distribute the entire wallet
+      and hope that the person that finds the passphrase will be nice enough
+      to give them back any of the funds.  There's nothing stopping them
+      from just taking it.
+      """
+
+      # If the plain string is all zero-bytes, then this key was created 
+      # without the test strings
+      if self.testStringPlain.toBinStr() == '\x00'*32:
+         return ''
+
+      kdfid  = self.encryptInfo.kdfObjID
+      kdfObj = KdfObject.getRegisteredKDF(kdfid)
+
+      fmtChallenge = []
+      fmtChallenge.append( '-'*80 )
+      fmtChallenge.append( 'Armory Master Key Recovery Challenge' )
+      fmtChallenge.append( '-'*80 )
+      fmtChallenge.append( '' )
+      fmtChallenge.append( 'The master key is encrypted in the following way:' )
+      if kdfObj.kdfName.lower()=='romixov2' :
+         fmtChallenge.append( '   Encryption:    ' + self.encryptInfo.encryptAlgo)
+         fmtChallenge.append( '   KDF Algorithm: ' + kdfObj.kdfName )
+         fmtChallenge.append( '   KDF Mem Used:  ' + kdfObj.memReqd )
+         fmtChallenge.append( '   KDF NumIter:   ' + kdfObj.numIter )
+         fmtChallenge.append( '' )
+         fmtChallenge.append( '   KDF Salt:      ' + kdfObj.salt.toHexStr()[:32] )
+         fmtChallenge.append( '                  ' + kdfObj.salt.toHexStr()[32:] )
+         fmtChallenge.append( '' )
+         fmtChallenge.append( '   Encryption:    ' 
+         fmtChallenge.append( '   Encrypted Key: ' + kdfObj.masterKeyEncrypted.toHexStr()[:32])
+         fmtChallenge.append( '                  ' + kdfObj.masterKeyEncrypted.toHexStr()[32:])
+      fmtChallenge.append( '' )
+      fmtChallenge.append( 'The test string is 32 bytes, encrypted with the above key:' )
+      fmtChallenge.append( '   Encrypted Str ' + self.testStringEncr.toHexStr()[:32])
+      fmtChallenge.append( '                 ' + self.testStringEncr.toHexStr()[32:])
+      fmtChallenge.append( '' )
+      fmtChallenge.append( 'The decrypted test string starts with the following:')
+      fmtChallenge.append( '   First16 (ASCII): ARMORYENCRYPTION')
+      fmtChallenge.append( '   First16 (HEX):   41524d4f5259454e4352595054494f4e')
+      fmtChallenge.append( '' )
+      fmtChallenge.append( 'Once you have found the correct passphrase, you can ')
+      fmtChallenge.append( 'use the second 16 bytes as proof that you have succeeded. ')
+      fmtChallenge.append( 'Use the entire decrypted string as the secret key to ')
+      fmtChallenge.append( 'send a message authentication code to the user with ')
+      fmtChallenge.append( 'your identifying information.  ')
+      fmtChallenge.append( '')
+      fmtChallenge.append( 'Send the user the following message authentication code:')
+      fmtChallenge.append( '   toHex(HMAC_SHA512(decrypted32, emailaddress)[:16])')
+      fmtChallenge.append( '')
+      fmtChallenge.append( '-'*100 )
+      fmtChallenge.append( '-'*100 )
+      
+      self.kdfObjID     = kdfAlgo
+      self.encryptAlgo  = encrAlgo
+      self.keySource    = keysrc
+      self.ivSource     = ivsrc
+
+   #############################################################################
+   def testKeyRecoveryResponse(self, userstr, responseHex):
+      userstr = SecureBinaryData(userstr)
+      hmac = HDWalletCrypto().HMAC_SHA512(self.testStringPlain, userstr)
+      return (self.testStringPlain.toBinStr()[:16]==hex_to_binary(response))
+   
+
+         
+
+
+#############################################################################
+#############################################################################
+class DeletedWalletEntry(object):
+
+   def __init__(self, nBytes=0):
+      self.nBytes = nBytes
+
+   def serialize(self):
+      return '\x00'*self.nBytes
+   
+   def unserialize(self, zeroStr):
+      self.nBytes = len(zeroStr)
+      if not zeroStr.count('\x00')==self.nBytes:
+         LOGERROR('Expecting all zero bytes in DeletedWalletEntry.') 
+      
+
+
+   
+
+
+#############################################################################
+#############################################################################
+class RootRelationship(object):
+   """
+   Simple Relationships will fit nicely into 68 bytes.  Otherwise, we give
+   the idea of RootRelationshipComplex object.  Complex relationships will
+   not be used for a long time... but might as well accommodate non-simple
+   cases.
+   """
+   def __init__(self, MofN=None, siblings=[], complexRelate=None):
+      if MofN==None:   
+         MofN=MULTISIG_UNKNOWN
+      self.relType = MofN
+      self.relID = None
+      self.siblings = siblings
+      if len(self.siblings)>3:
+         LOGERROR('Cannot have wallet relationships between more than 3 wallets')
+         return
+
+      for sib in self.siblings:
+         if not len(sib)==20:
+            LOGERROR('All siblings must be specified by 20-byte hash160 values')
+            return
+
+      self.siblings.sort()
+
+
+      if MofN==MULTISIG_UNKNOWN:
+         LOGDEBUG('Initialized default RootRelationship object')
+      else:
+         LOGDEBUG('Initialized RootRelationship object: ')
+         LOGDEBUG('\tType:     %d-of-%d', self.relType[0], self.relType[1])
+         LOGDEBUG('\tSiblings: ')
+         for i,sib in enumerate(self.siblings):
+            LOGDEBUG('\t\tSiblingRoot%d: %s', i, binary_to_hex(sib))
+
+      # Isn't implemented yet, but we might as well have a placeholder for it
+      self.complexRelationship = complexRelate
+
+
+   def serialize(self):
+      if not self.complexRelationship: 
+         siblingOut = ['\x00'*20]*3
+         for i,sib in enumerate(sorted(self.siblings))
+            siblingOut[i] = sib[:]
+         bp = BinaryPacker()
+         bp.put(UINT32,       self.relType[0])
+         bp.put(UINT32,       self.relType[1])
+         bp.put(BINARY_CHUNK, siblingOut[0],   widthBytes=20)
+         bp.put(BINARY_CHUNK, siblingOut[1],   widthBytes=20)
+         bp.put(BINARY_CHUNK, siblingOut[2],   widthBytes=20)
+         return bp.getBinaryString()
+      else:
+         bp = BinaryPacker()
+         bp.put(BINARY_CHUNK, '\xff'*4)
+         bp.put(BINARY_CHUNK, '\xff'*4)
+         bp.put(BINARY_CHUNK, self.complexRelationship.serialize())
+
+   def unserialize(self, theStr):
+      bu = makeBinaryUnpacker(theStr)
+      M = bu.get(UINT32)
+      N = bu.get(UINT32)
+      self.siblings = []
+      if M==UINT32_MAX and N==UINT32_MAX:
+         self.complexRelationship = CplxRelate().unserialize(theStr)
+      else:
+         for i in range(3):
+            sib = bu.get(BINARY_CHUNK, 20)
+            if not sib=='\x00'*20:
+               self.siblings.append(sib)
+      return self
+
+
+   def hasSibling(self, sibling160):
+      return (sibling160 in self.siblings)
+
+
+   def getRelationshipID(self):
+      if self.relID==None:
+         self.relID = binary_to_base58(computeChecksum(self.serialize(), 6))
+      return self.relID
+      
+
+
+#############################################################################
+#############################################################################
+class ArmoryRoot(object):
+      
+      self.wltCreateDate = 0
+      self.labelName   = ''
+      self.labelDescr  = ''
+      self.linearAddr160List = []
+      self.chainIndexMap = {}
+      self.addrMap       = {}  # maps 20-byte addresses to WalletPayloadAddr objects
+      self.labelsMap     = {}  # maps 20-byte addresses to user-created labels
+      self.chainIndexMap = {}
+      self.p2shMap       = {}  # maps raw P2SH scripts to full scripts.
+
+      self.relationship   = RootRelationship(None)
+      self.privKeyEncrypt = EncryptionDef(None)
+      self.outerEncrypt   = EncryptionDef(None)
+
+      """
+      self.fileTypeStr    = '\xbaWALLET\x00'
+      self.magicBytes     = MAGIC_BYTES
+      self.version        = PYBTCWALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
+      self.eofByte        = 0
+      self.cppWallet      = None   # Mirror of PyBtcWallet in C++ object
+      self.cppInfo        = {}     # Extra info about each address to help sync
+      self.watchingOnly   = False
+      self.wltCreateDate  = 0
+
+      # Three dictionaries hold all data
+      self.addrMap     = {}  # maps 20-byte addresses to PyBtcAddress objects
+      self.commentsMap = {}  # maps 20-byte addresses to user-created comments
+      self.commentLocs = {}  # map comment keys to wallet file locations
+      self.opevalMap   = {}  # maps 20-byte addresses to OP_EVAL data (future)
+      self.labelName   = ''
+      self.labelDescr  = ''
+      self.linearAddr160List = []
+      self.chainIndexMap = {}
+      if USE_TESTNET:
+         self.addrPoolSize = 10  # this makes debugging so much easier!
+      else:
+         self.addrPoolSize = CLI_OPTIONS.keypool
+
+      # For file sync features
+      self.walletPath = ''
+      self.doBlockchainSync = BLOCKCHAIN_READONLY
+      self.lastSyncBlockNum = 0
+
+      # Private key encryption details
+      self.useEncryption  = False
+      self.kdf            = None
+      self.crypto         = None
+      self.kdfKey         = None
+      self.defaultKeyLifetime = 10    # seconds after unlock, that key is discarded
+      self.lockWalletAtTime   = 0    # seconds after unlock, that key is discarded
+      self.isLocked       = False
+      self.testedComputeTime=None
+
+      # Deterministic wallet, need a root key.  Though we can still import keys.
+      # The unique ID contains the network byte (id[-1]) but is not intended to
+      # resemble the address of the root key
+      self.uniqueIDBin = ''
+      self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
+      self.lastComputedChainAddr160  = ''
+      self.lastComputedChainIndex = 0
+      self.highestUsedChainIndex  = 0 
+
+      # All PyBtcAddress serializations are exact same size, figure it out now
+      self.pybtcaddrSize = len(PyBtcAddress().serialize())
+
+
+      # All BDM calls by default go on the multi-thread-queue.  But if the BDM
+      # is the one calling the PyBtcWallet methods, it will deadlock if it uses
+      # the queue.  Therefore, the BDM will set this flag before making any 
+      # calls, which will tell PyBtcWallet to use __direct methods.
+      self.calledFromBDM = False
+
+      # Finally, a bunch of offsets that tell us where data is stored in the
+      # file: this can be generated automatically on unpacking (meaning it
+      # doesn't require manually updating offsets if I change the format), and
+      # will save us a couple lines of code later, when we need to update things
+      self.offsetWltFlags  = -1
+      self.offsetLabelName = -1
+      self.offsetLabelDescr  = -1
+      self.offsetTopUsed   = -1
+      self.offsetRootAddr  = -1
+      self.offsetKdfParams = -1
+      self.offsetCrypto    = -1
+      """
+
+################################################################################
+class AddressLabel(object):
+  
+   FILECODE = 'LABL' 
+
+   def __init__(self, label=''):
+      self.label = label
+
+   def set(self, lbl):
+      self.label = toUnicode(lbl)
+
+   def serialize(self):
+      return toBytes(self.label)
+
+   def unserialize(self, theStr):
+      self.label = toUnicode(theStr)
+      return label
+
+
+################################################################################
+class TxComment(object):
+
+   FILECODE = 'COMM'
+
+   def __init__(self, comm=''):
+      self.comm = comm
+
+   def set(self, comm):
+      self.comm = toUnicode(comm)
+
+   def serialize(self):
+      return toBytes(self.comm)
+
+   def unserialize(self, theStr):
+      self.comm = toUnicode(theStr)
+      return self
+
+
+################################################################################
+class ArmoryFileHeader(object):
+  
+   FILECODE = 'HEAD' 
+
+   def __init__(self):
+      LOGDEBUG('Creating file header')
+      self.fileID        = '\xbaARMORY\xab'
+      self.armoryVer     = getVersionInt(ARMORY_WALLET_VERSION)
+      self.flags         = BitSet(64)
+      self.createTime    = UINT64_MAX
+      self.wltName       = u''
+      self.wltDescr      = u''
+      self.wltID         = ''
+
+   def serialize(self):
+      name  = truncUnicode(self.wltName,  32 )
+      descr = truncUnicode(self.wltDescr, 256)
+      
+      bp = BinaryPacker()
+      bp.put(BINARY_CHUNK,    self.fileID,           widthBytes=  8)
+      bp.put(UINT32,          self.armoryVer)       #widthBytes=  4
+      bp.put(BINARY_CHUNK,    MAGIC_BYTES,           widthBytes=  4)
+      bp.put(BINARY_CHUNK,    self.wltID,            widthBytes=  8)
+      bp.put(UINT64,          self.flags.toValue()) #widthBytes=  8
+      bp.put(UINT64,          self.createTime)      #widthBytes = 8
+      bp.put(BINARY_CHUNK,    toBytes(name),         widthBytes= 32)
+      bp.put(BINARY_CHUNK,    toBytes(descr),        widthBytes=256)
+      return bp.getBinaryString()
+
+   def unserialize(self, theStr):
+      toUnpack = makeBinaryUnpacker(theStr)
+      
+
+
+
+################################################################################
+# Let's take a shot at using inheritance for each of these data types
+class WalletEntry(object):
+   """
+   The wallets will be made up of IFF/RIFF entries. 
+
+   The following comments are for labels & P2SH scripts:
+
+   The goal of this object type is to allow for comments/P2SH scripts to be
+   "lightly" encrypted before including them in a regularly-backed-up file.
+
+   Our root private key only needs to be backed up once, but all of the 
+   P2SH scripts MUST be backed up regularly (and comment fields would be 
+   nice to have backed up, too).  The problem is, you don't want to put 
+   your whole wallet file into dropbox, encrypted or not.  The solution is
+   to have a separate P2SH&Comments file (a wallet without any addresses)
+   which can be put in Dropbox.
+
+   The solution is to have a file that can be put in dropbox, and each
+   entry is AES encrypted using the 32 bytes of the PUBLIC FINGERPRINT as
+   the encryption key.   This allows you to decrypt this entry without 
+   even unlocking your wallet, but it does require you to have that 
+   wallet in your possession.  Your wallet should NOT be backed up this
+   way, thus anyone gaining access to only the P2SH&Comment file would NOT
+   have the information needed to decrypt it (and by using the finger-
+   print of the address, they can't simply try every public key in the 
+   blockchain ... they must have access to at least the watching-only wlt).
+   """
+
+   entryType = 'VIRTUALBASE'
+   entryCode = 'ERRR'
+
+
+   FILECODEMAP = { 'HEAD': ArmoryFileHeader,
+                   'ADDR': ArmoryAddress,
+                   'ROOT': ArmoryRoot,
+                   'LABL': AddressLabel,
+                   'COMM': TxComment,
+                   'P2SH': ScriptP2SH,
+                   'ZERO': DeletedWalletEntry, 
+                   'RLAT': RootRelationship,
+                   'EKEY': EncryptionKeyObject,
+                   'EALG': EncryptionAlgorithm,
+                   'KALG': KdfObject,
+                   'SIGN': WltEntrySignature }
+
+   #############################################################################
+   def __init__(self, wltFileRef=None, parentRoot=None, payload=None, isEncr=False):
+      self.payloadPlain    = (None    if isEncr else payload)
+      self.payloadEncrypt  = (payload if isEncr else None   )
+      self.wltFileRef      = wltFileRef
+      self.wltByteLoc      = wltByteLoc
+      self.parentRoot160   = parentRoot
+      self.encryptInfo     = EncryptionDef(None)
+
+      # Create a reverse lookup of classes to codes
+      if len(self.WLTENTRYCODES)==0:
+         for key,val in self.WLTENTRYCLASS.iteritems():
+            self.WLTENTRYCODES[val] = key
+
+
+   def isEncrypted(self,
+
+   #############################################################################
+   def serialize(self):
+      if not self.payload:
+         LOGERROR('Cannot serialize a WalletEntry without a payload')
+         return ''
+
+      weCode    = self.WLTENTRYCODES[self.payload.__class__]
+      weData    = toBytes(self.payload.serialize())
+      weBytes   = lenBytes(weData) 
+      weChk     = computeChecksum(weData)
+
+      bp = BinaryPacker() 
+      bp.put(BINARY_CHUNK, weCode,                           widthBytes= 4)
+      bp.put(UINT32, weBytes)                               #widthBytes= 4
+      bp.put(BINARY_CHUNK, self.parentRoot160,               widthBytes=20)
+      bp.put(BINARY_CHUNK, self.encryptInfo.serialize())    #widthBytes=64
+
+      weHeadChk = computeChecksum(bp.getBinaryString())
+      bp.put(BINARY_CHUNK, weHeadChk,                        widthBytes= 4)
+
+      bp.put(BINARY_CHUNK, weData,                           widthBytes=weBytes)
+      bp.put(BINARY_CHUNK, weChk,                            widthBytes= 4)
+      return bp.getBinaryString()
+
+
+   #############################################################################
+   def unserialize(self, toUnpack, fileOffset=None):
+      if isinstance(toUnpack, BinaryUnpacker):
+         binUnpacker = toUnpack
+         if fileOffset==None:
+            fileOffset = binUnpacker.getPosition()
+      else:
+         binUnpacker = BinaryUnpacker(toUnpack)
+         if fileOffset==None:
+            fileOffset=-1
+
+      weHead    = binUnpacker(BINARY_CHUNK, 4+4+20+32)
+      weHeadChk = binUnpacker.get(BINARY_CHUNK,  4) 
+      weHead    = verifyChecksum(weHead, weHeadChk)
+      headerError = False
+      if len(weHead)==0:
+         LOGERROR('Checksum error in wallet entry HEADER;  could not fix.')
+         LOGERROR('Attempting to skip wallet entry')
+         headerError = True
+         
+      
+      headUnpacker = BinaryUnpacker(weHead)
+      weCode   = headUnpacker.get(BINARY_CHUNK,  4) 
+      weBytes  = headUnpacker.get(UINT32)
+      weRoot   = headUnpacker.get(BINARY_CHUNK, 20) 
+      weCrypto = headUnpacker.get(BINARY_CHUNK, 32)
+
+      weData   = binUnpacker.get(BINARY_CHUNK,  weBytes) 
+      weChk    = binUnpacker.get(BINARY_CHUNK,   4) 
+
+      if headerError:
+         return None
+
+      weData = verifyChecksum(weData, weChk)
+      if len(weData)==0:
+         LOGERROR('Checksum error in wallet entry DATA; could not fix.')
+         LOGERROR('Attempting to skip wallet entry')
+         return None
+
+      # Now let's save and process
+      self.encryptInfo = EncryptionDef().unserialize(weCrypto)
+      if self.encryptInfo.useEncryption():
+         # Encrypted data is stored as raw binary string.  
+         self.payloadPlain   = ''
+         self.payloadEncrypt = weData
+      else:
+         # Unencrypted is instantly unserialized into a payload object
+         if not WLTENTRYCLASS.has_key(weCode):
+            LOGWARN('Unrecognized entry in wallet file: %s' % weCode)
+            LOGWARN('Skipping wallet entry')
+            return None
+         payloadClass = self.WLTENTRYCLASS[weCode]
+         self.payloadPlain   = payloadClass().unserialize(weData)
+         self.payloadEncrypt = ''
+         self.payloadPlain.wltEntryRef = self
+
+      self.wltByteLoc = fileOffset
+
+
+   #############################################################################
+   def decryptPayload(self, permanent=False, **decryptData):
+      
+
+
+
+
 
 
 
@@ -11629,8 +12823,8 @@ class ArmoryWalletFile(object):
 
       # Default encryption settings for "outer" encryption (if we want to
       # encrypt the entire WalletEntry, not just the private keys
-      self.defaultOuterEncrypt = EncryptInfo(None)
-      self.defaultInnerEncrypt = EncryptInfo(None)
+      self.defaultOuterEncrypt = EncryptionDef(None)
+      self.defaultInnerEncrypt = EncryptionDef(None)
 
 
       # These flags are ONLY for unit-testing the atomic file operations
@@ -11639,10 +12833,13 @@ class ArmoryWalletFile(object):
       self.interruptTest3  = False
 
 
+
+
    #############################################################################
    def createNewKDFObject(self, kdfAlgo='ROMixOv2', \
                                 targSec=0.25, \
-                                maxMem=32*1024*1024):
+                                maxMem=32*1024*1024,
+                                writeToFile=True):
 
       """
       ROMixOv2 is ROMix-over-2 -- it's the ROMix algorithm as described by 
@@ -11656,23 +12853,31 @@ class ArmoryWalletFile(object):
       
       if kdfAlgo.lower()=='romixov2':
          
-      kdf = KdfRomix()
-      kdf.computeKdfParams(targetSec, long(maxMem))
+         kdf = KdfRomix()
+         kdf.computeKdfParams(targetSec, long(maxMem))
+   
+         mem   = kdf.getMemoryReqtBytes()
+         nIter = kdf.getNumIterations()
+         slt   = SecureBinaryData(kdf.getSalt().toBinStr())
 
-      mem   = kdf.getMemoryReqtBytes()
-      nIter = kdf.getNumIterations()
-      salt  = SecureBinaryData(kdf.getSalt().toBinStr())
-      return (mem, nIter, salt)
+         newKDF   = KdfObject(kdfAlgo, memReqd=mem, numIter=nIter, salt=slt)
+         newWE    = WalletEntry(self, payload=newKDF)
+         newKdfID = newKDF.getKdfID()
+   
+         if writeToFile and not self.kdfMap.has_key(newKdfID):
+            self.doFileOperation('Append', newWE)
 
-      self.kdf = KdfRomix()
-      (mem,niter,salt) = self.computeSystemSpecificKdfParams( \
-                                             kdfTargSec, kdfMaxMem)
-      self.kdf.usePrecomputedKdfParams(mem, niter, salt)
-      self.kdfKey = self.kdf.DeriveKey(securePassphrase)
+         self.kdfMap[newKdfID] = newKDF
+         EncryptionDef.registerKDF(newKDF)
+         
+
 
    #############################################################################
    def changePrivateKeyEncryption(self, encryptInfoObj):
       
+
+   #############################################################################
+   def changeOuterEncryption(self, encryptInfoObj):
 
 
    #############################################################################
@@ -11808,13 +13013,11 @@ class ArmoryWalletFile(object):
 
          oldData = self.readWalletEntry(fileLoc).fullSerialize()
          totalBytes = len(oldData) - 8
-         newData = WalletEntryDeleted(fileLoc).fullSerialize()
+         newData = WalletPayloadDeleted(fileLoc).fullSerialize()
             
          if isWltEntryObj:
             LOGERROR('TODO: figure out what I want to do with deleted WltEntry')
             theData.wltByteLoc = -1
-          
-
       else:
          if not isinstance(theData, basestring):
             LOGERROR('Can only add/update wallet data with string or unicode type!')
@@ -12027,513 +13230,6 @@ class ArmoryWalletFile(object):
 
 
 
-
-
-################################################################################
-# Let's take a shot at using inheritance for each of these data types
-class WalletEntry(object):
-   """
-   The wallets will be made up of IFF/RIFF entries. 
-
-   The following comments are for comments & P2SH scripts:
-
-   The goal of this object type is to allow for comments/P2SH scripts to be
-   "lightly" encrypted before including them in a regularly-backed-up file.
-
-   Our root private key only needs to be backed up once, but all of the 
-   P2SH scripts MUST be backed up regularly (and comment fields would be 
-   nice to have backed up, too).  The problem is, you don't want to put 
-   your whole wallet file into dropbox, encrypted or not.  The solution is
-   to have a separate P2SH&Comments file (a wallet without any addresses)
-   which can be put in Dropbox.
-
-   The solution is to have a file that can be put in dropbox, and each
-   entry is AES encrypted using the 32 bytes of the PUBLIC FINGERPRINT as
-   the encryption key.   This allows you to decrypt this entry without 
-   even unlocking your wallet, but it does require you to have that 
-   wallet in your possession.  Your wallet should NOT be backed up this
-   way, thus anyone gaining access to only the P2SH&Comment file would NOT
-   have the information needed to decrypt it (and by using the finger-
-   print of the address, they can't simply try every public key in the 
-   blockchain ... they must have access to at least the watching-only wlt).
-   """
-
-   entryType = 'VIRTUALBASE'
-   entryCode = 'ERRR'
-
-
-   WLTENTRYCODES = { }
-   WLTENTRYCLASS = { \
-                     'HEAD': WalletEntryFileHeader,
-                     'ADDR': WalletEntryAddress,
-                     'ROOT': WalletEntryRootObj,
-                     'LABL': WalletEntryLabel,
-                     'COMM': WalletEntryComment,
-                     'P2SH': WalletEntryP2SHScript,
-                     'ZERO': WalletEntryDeleted, 
-                     'RLAT': WalletEntryRelationship,
-                     'EKEY': WalletEntryEncryptionKey,
-                     'EALG': WalletEntryEncryptionAlgo,
-                     'KALG': WalletEntryKDFAlgo,
-                     'SIGN': WalletEntrySignature 
-                   }
-
-   #############################################################################
-   def __init__(self, wltFileRef=None, wltByteLoc=-1, parentRoot=None):
-      self.payloadPlain    = None
-      self.payloadEncrypt  = None
-      self.wltFileRef      = wltFileRef
-      self.wltByteLoc      = wltByteLoc
-      self.parentRoot160   = parentRoot
-      self.encryptInfo     = EncryptInfo(None)
-
-      # Create a reverse lookup of classes to codes
-      if len(self.WLTENTRYCODES)==0:
-         for key,val in self.WLTENTRYCLASS.iteritems():
-            self.WLTENTRYCODES[val] = key
-
-
-   def isEncrypted(self,
-
-   #############################################################################
-   def serialize(self):
-      if not self.payload:
-         LOGERROR('Cannot serialize a WalletEntry without a payload')
-         return ''
-
-      weCode    = self.WLTENTRYCODES[self.payload.__class__]
-      weData    = toBytes(self.payload.serialize())
-      weBytes   = lenBytes(weData) 
-      weChk     = computeChecksum(weData)
-
-      bp = BinaryPacker() 
-      bp.put(BINARY_CHUNK, weCode,                           widthBytes= 4)
-      bp.put(UINT32, weBytes)                               #widthBytes= 4
-      bp.put(BINARY_CHUNK, self.parentRoot160,               widthBytes=20)
-      bp.put(BINARY_CHUNK, self.encryptInfo.serialize())    #widthBytes=64
-
-      weHeadChk = computeChecksum(bp.getBinaryString())
-      bp.put(BINARY_CHUNK, weHeadChk,                        widthBytes= 4)
-
-      bp.put(BINARY_CHUNK, weData,                           widthBytes=weBytes)
-      bp.put(BINARY_CHUNK, weChk,                            widthBytes= 4)
-      return bp.getBinaryString()
-
-
-   #############################################################################
-   def unserialize(self, toUnpack, fileOffset=None):
-      if isinstance(toUnpack, BinaryUnpacker):
-         binUnpacker = toUnpack
-         if fileOffset==None:
-            fileOffset = binUnpacker.getPosition()
-      else:
-         binUnpacker = BinaryUnpacker(toUnpack)
-         if fileOffset==None:
-            fileOffset=-1
-
-      weHead    = binUnpacker(BINARY_CHUNK, 4+4+20+EncryptInfo.SIZE)
-      weHeadChk = binUnpacker.get(BINARY_CHUNK,  4) 
-      weHead    = verifyChecksum(weHead, weHeadChk)
-      headerError = False
-      if len(weHead)==0:
-         LOGERROR('Checksum error in wallet entry HEADER;  could not fix.')
-         LOGERROR('Attempting to skip wallet entry')
-         headerError = True
-         
-      
-      headUnpacker = BinaryUnpacker(weHead)
-      weCode   = headUnpacker.get(BINARY_CHUNK, 4) 
-      weBytes  = headUnpacker.get(UINT32)
-      weRoot   = headUnpacker.get(BINARY_CHUNK, 20) 
-      weCrypto = headUnpacker.get(BINARY_CHUNK, EncryptInfo.SIZE)
-
-      weData   = binUnpacker.get(BINARY_CHUNK,  weBytes) 
-      weChk    = binUnpacker.get(BINARY_CHUNK,  4) 
-
-      if headerError:
-         return None
-
-      weData = verifyChecksum(weData, weChk)
-      if len(weData)==0:
-         LOGERROR('Checksum error in wallet entry DATA; could not fix.')
-         LOGERROR('Attempting to skip wallet entry')
-         return None
-
-      # Now let's save and process
-      self.encryptInfo = EncryptInfo().unserialize(weCrypto)
-      if self.encryptInfo.useEncryption():
-         # Encrypted data is stored as raw binary string.  
-         self.payloadPlain   = ''
-         self.payloadEncrypt = weData
-      else:
-         # Unencrypted is instantly unserialized into a payload object
-         if not WLTENTRYCLASS.has_key(weCode):
-            LOGWARN('Unrecognized entry in wallet file: %s' % weCode)
-            LOGWARN('Skipping wallet entry')
-            return None
-         payloadClass = self.WLTENTRYCLASS[weCode]
-         self.payloadPlain   = payloadClass().unserialize(weData)
-         self.payloadEncrypt = ''
-         self.payloadPlain.wltEntryRef = self
-
-      self.wltByteLoc = fileOffset
-
-
-   #############################################################################
-   def decryptPayload(self, permanent=False, **decryptData):
-      
-
-
-
-#############################################################################
-class WalletEntryKDFAlgo(object):
-
-   KnownKdfs = { \
-                  'identity': [], 
-                  'romixov2': ['memReqd','numIter','salt'] }
-
-
-   #############################################################################
-   def __init__(self, kdfName=None, **params):
-
-      if kdfName==None:
-         self.kdfName = ''
-         self.kdf = None
-         def errorkdf(x):
-            LOGEXCEPT('KDF not initialized!')
-            return SecureBinaryData(0)
-         self.execKDF = errorkdf
-         return
-         
-      if not kdfName.lower() in self.KnownKdfs:
-         LOGERROR('Attempted to create unknown KDF object:  name=%s', kdfName)
-         return
-
-      reqdArgs = self.KnownKdfs[kdfName.lower()]
-      for arg in reqdArgs:
-         if not arg in params:
-            LOGERROR('KDF name=%s:   not enough input arguments', kdfName)
-            LOGERROR('Required args: %s', ''.join(reqdArgs))
-            return
-            
-
-      # Right now there is only one algo.  You can add your own via "KnownKdfs" 
-      # and then updating this method to create a callable KDF object
-      if kdfName.lower()=='identity':
-         self.execKDF = lambda x: SecureBinaryData(x)
-      if kdfName.lower()=='romixov2':
-
-         memReqd = params['memReqd']
-         numIter = params['numIter']
-         salt    = params['salt'   ]
-
-         # Make sure that non-SBD input is converted to SBD
-         saltSBD = SecureBinaryData(salt)
-
-         if memReqd>2**31:
-            LOGERROR('Invalid memory for KDF.  Must be 2GB or less.')
-            return
-         
-
-         if saltSBD.getSize()==0:
-            LOGERROR('Zero-length salt supplied with KDF. If creating new, use ')
-            LOGERROR('     salt=SecureBinaryData().GenerateRandom(16)')
-            return
-            
-         self.kdfName = 'ROMixOv2'
-         self.memReqd = memReqd
-         self.numIter = numIter
-         self.salt    = saltSBD
-         self.kdf = KdfRomix(self.memReqd, self.numIter, self.salt) 
-         self.execKDF = lambda pwd: self.kdf.DeriveKey( SecureBinaryData(pwd) )
-
-      else:
-         LOGERROR('Unrecognized KDF name')
-      
-
-   #############################################################################
-   def getKdfID(self):
-      return computeChecksum(self.serialize(), 8)
-      
-   #############################################################################
-   def serialize(self):
-      bp = BinaryPacker()
-      if self.kdfName.lower()=='romixov2':
-         bp.put(BINARY_CHUNK, self.kdfname,           widthBytes= 8)
-         bp.put(BINARY_CHUNK, 'SHA512',               widthBytes= 8)
-         bp.put(UINT32,       self.memReqd)          #widthBytes= 4
-         bp.put(UINT32,       self.numIter)          #widthBytes= 4
-         bp.put(BINARY_CHUNK, self.salt.toBinStr()),  widthBytes=32)
-      elif self.kdfName.lower()=='identity':
-         bp.put(BINARY_CHUNK, 'Identity',             widthBytes= 8)
-      return bp.getBinaryString()
-      
-   #############################################################################
-   def unserialize(self, toUnpack):
-      if isinstance(toUnpack, BinaryUnpacker):
-         bu = toUnpack
-      else:
-         bu = BinaryUnpacker(toUnpack)
-      
-      kdfName = bu.get(BINARY_CHUNK, 8)
-      if not kdfName.lower() in self.KnownKdfs:
-         LOGERROR('Unknown KDF in unserialize:  %s', kdfName)
-         return None
-     
-      # Start the KDF-specific processing
-      if kdfName.lower()=='identity':
-         self.__init__('Identity')
-      elif kdfName.lower()=='romixov2':
-         useHash = bu.get(BINARY_CHUNK,  8)
-         if not useHash.lower().startswith('sha512'):
-            LOGERROR('No pre-programmed KDFs use hash function: %s', useHash)
-            return
-         mem = bu.get(UINT32)
-         nIter = bu.get(UINT32)
-         slt = bu.get(BINARY_CHUNK, 32)
-         self.__init__(kdfName, memReqd=mem, numIter=nIter, salt=slt)
-
-
-
-   #############################################################################
-   def createNewKDF(self, kdfName, targSec=0.25, maxMem=32*1024*1024):
-      
-      if not (0 <= targSec <= 20):
-         LOGERROR('Must use positive time <= 20 sec.  Use 0 for min settings')
-         return None
-
-      if not (32*1024 <= maxMem <= 2**31):
-         LOGERROR('Must use maximum memory between 32 kB and 2048 MB')
-         return None
-
-      if not kdfName.lower() in self.KnownKdfs:
-         LOGERROR('Unknown KDF name in createNewKDF:  %s', kdfName)
-         return None
-
-      if kdfName.lower()=='identity':
-         self.__init__('Identity')
-         return self
-      if kdfName.lower()=='romixov2':
-         kdf = KdfRomix()
-         kdf.computeKdfParams(targetSec, maxMem)
-   
-         mem   = kdf.getMemoryReqtBytes()
-         nIter = kdf.getNumIterations()
-         slt   = kdf.getSalt().toBinStr()
-         self.__init__('ROMixOv2', memReqd=mem, numIter=nIter, salt=slt)
-         return self
-
-
-KnownEncryptions = { 'AE256CFB':
-                        { 'Decrypt': 
-
-
-
-#############################################################################
-class WalletPayloadDeleted(object):
-
-   def __init__(self, nBytes=0, wltRef=None, wltLoc=-1, root=None):
-      super(WalletEntryDeleted, self).__init__(wltRef, wltLoc, root)
-      self.nBytes = nBytes
-
-
-   def serialize(self):
-      return '\x00'*self.nBytes
-   
-   def unserialize(self, weData):
-      self.nBytes = len(weData)
-      if not weData.count('\x00')==self.nBytes:
-         LOGERROR('Expecting all zero bytes in WalletEntryDeleted.') 
-      
-
-
-#############################################################################
-class WalletPayloadAddress(object):
-
-   def __init__(self, wltRef, pyaddr):
-      self.addrObj = pyaddr
-
-
-   def serialize(self):
-      """
-      May use this extra serialize/unserialize layer, to later 
-      encrypt or decrypt all address data
-      """
-      return self.pyAddr.serialize()
-
-   def unserialize(self, theData):
-      self.pyAddr.unserialize(theData)
-      return self
-      
-
-   def getAddr160(self):
-      return self.pyAddr.getAddr160()
-
-   def getParent160(self):
-
-   def getChaincode(self):
-      return self.pyAddr.getChaincode()
-   
-
-
-#############################################################################
-class RootRelationship(object):
-   """
-   Simple Relationships will fit nicely into 68 bytes.  Otherwise, we give
-   the idea of RootRelationshipComplex object.  Complex relationships will
-   not be used for a long time... but might as well accommodate non-simple
-   cases.
-   """
-   def __init__(self, MofN=None, siblings=[], complexRelate=None):
-      if MofN==None:   
-         MofN=(0,0)
-      self.relType = MofN
-      self.relID = None
-      self.siblings = siblings
-      if len(self.siblings)>3:
-         LOGERROR('Cannot have wallet relationships between more than 3 wallets')
-         return
-
-      for sib in self.siblings:
-         if not len(sib)==20:
-            LOGERROR('All siblings must be specified by 20-byte hash160 values')
-            return
-
-      self.siblings.sort()
-
-      # Isn't implemented yet, but we might as well have a placeholder for it
-      self.complexRelationship = complexRelate
-
-
-   def serialize(self):
-      if not self.complexRelationship: 
-         siblingOut = ['\x00'*20]*3
-         for i,sib in enumerate(sorted(self.siblings))
-            siblingOut[i] = sib[:]
-         bp = BinaryPacker()
-         bp.put(UINT32,       self.relType[0])
-         bp.put(UINT32,       self.relType[1])
-         bp.put(BINARY_CHUNK, siblingOut[0],   widthBytes=20)
-         bp.put(BINARY_CHUNK, siblingOut[1],   widthBytes=20)
-         bp.put(BINARY_CHUNK, siblingOut[2],   widthBytes=20)
-         return bp.getBinaryString()
-      else:
-         bp = BinaryPacker()
-         bp.put(BINARY_CHUNK, '\xff'*4)
-         bp.put(BINARY_CHUNK, '\xff'*4)
-         bp.put(BINARY_CHUNK, self.complexRelationship.serialize())
-
-   def unserialize(self, theStr):
-      bu = BinaryUnpacker(theStr)
-      M = bu.get(UINT32)
-      N = bu.get(UINT32)
-      self.siblings = []
-      if M==0 and N==0:
-         self.complexRelationship.unserialize(theStr)
-      else:
-         for i in range(3):
-            sib = bu.get(BINARY_CHUNK, 20)
-            if not sib=='\x00'*20:
-               self.siblings.append(sib)
-      return self
-
-
-   def hasSibling(self, sibling160):
-      return (sibling160 in self.siblings)
-
-
-   def getRelationshipID(self):
-      if self.relID==None:
-         self.relID = binary_to_base58(computeChecksum(self.serialize(), 6))
-      return self.relID
-      
-
-
-#############################################################################
-class WalletPayloadRootObj(object):
-      
-      self.wltCreateDate = 0
-      self.labelName   = ''
-      self.labelDescr  = ''
-      self.linearAddr160List = []
-      self.chainIndexMap = {}
-      self.addrMap       = {}  # maps 20-byte addresses to WalletEntryAddr objects
-      self.labelsMap     = {}  # maps 20-byte addresses to user-created labels
-      self.chainIndexMap = {}
-      self.p2shMap       = {}  # maps raw P2SH scripts to full scripts.
-
-      self.relationship = RootRelationship(None)
-
-      """
-      self.fileTypeStr    = '\xbaWALLET\x00'
-      self.magicBytes     = MAGIC_BYTES
-      self.version        = PYBTCWALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
-      self.eofByte        = 0
-      self.cppWallet      = None   # Mirror of PyBtcWallet in C++ object
-      self.cppInfo        = {}     # Extra info about each address to help sync
-      self.watchingOnly   = False
-      self.wltCreateDate  = 0
-
-      # Three dictionaries hold all data
-      self.addrMap     = {}  # maps 20-byte addresses to PyBtcAddress objects
-      self.commentsMap = {}  # maps 20-byte addresses to user-created comments
-      self.commentLocs = {}  # map comment keys to wallet file locations
-      self.opevalMap   = {}  # maps 20-byte addresses to OP_EVAL data (future)
-      self.labelName   = ''
-      self.labelDescr  = ''
-      self.linearAddr160List = []
-      self.chainIndexMap = {}
-      if USE_TESTNET:
-         self.addrPoolSize = 10  # this makes debugging so much easier!
-      else:
-         self.addrPoolSize = CLI_OPTIONS.keypool
-
-      # For file sync features
-      self.walletPath = ''
-      self.doBlockchainSync = BLOCKCHAIN_READONLY
-      self.lastSyncBlockNum = 0
-
-      # Private key encryption details
-      self.useEncryption  = False
-      self.kdf            = None
-      self.crypto         = None
-      self.kdfKey         = None
-      self.defaultKeyLifetime = 10    # seconds after unlock, that key is discarded
-      self.lockWalletAtTime   = 0    # seconds after unlock, that key is discarded
-      self.isLocked       = False
-      self.testedComputeTime=None
-
-      # Deterministic wallet, need a root key.  Though we can still import keys.
-      # The unique ID contains the network byte (id[-1]) but is not intended to
-      # resemble the address of the root key
-      self.uniqueIDBin = ''
-      self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
-      self.lastComputedChainAddr160  = ''
-      self.lastComputedChainIndex = 0
-      self.highestUsedChainIndex  = 0 
-
-      # All PyBtcAddress serializations are exact same size, figure it out now
-      self.pybtcaddrSize = len(PyBtcAddress().serialize())
-
-
-      # All BDM calls by default go on the multi-thread-queue.  But if the BDM
-      # is the one calling the PyBtcWallet methods, it will deadlock if it uses
-      # the queue.  Therefore, the BDM will set this flag before making any 
-      # calls, which will tell PyBtcWallet to use __direct methods.
-      self.calledFromBDM = False
-
-      # Finally, a bunch of offsets that tell us where data is stored in the
-      # file: this can be generated automatically on unpacking (meaning it
-      # doesn't require manually updating offsets if I change the format), and
-      # will save us a couple lines of code later, when we need to update things
-      self.offsetWltFlags  = -1
-      self.offsetLabelName = -1
-      self.offsetLabelDescr  = -1
-      self.offsetTopUsed   = -1
-      self.offsetRootAddr  = -1
-      self.offsetKdfParams = -1
-      self.offsetCrypto    = -1
-      """
 
 
 
