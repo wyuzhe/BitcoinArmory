@@ -1502,10 +1502,10 @@ class BinaryPacker(object):
    def __str__(self):
       return self.getBinaryString()
 
-   def addPaddingMod(self, mod):
+   def addPaddingMod(self, mod, padByte='\x00'):
       div,mod = divmod(self.getSize(), 32)
       if not mod==0:
-         self.put(BINARY_CHUNK, '\x00'*(32-mod))
+         self.put(BINARY_CHUNK, padByte*(32-mod))
 
    def put(self, varType, theData, width=None, endianness=LITTLEENDIAN):
       """
@@ -12027,6 +12027,8 @@ class KdfObject(object):
          slt = bu.get(BINARY_CHUNK, 32)
          self.__init__(kdfName, memReqd=mem, numIter=nIter, salt=slt)
 
+      return self
+
 
 
    #############################################################################
@@ -12334,24 +12336,36 @@ class EncryptionKey(object):
       fmtChallenge.append( 'use the second 16 bytes as proof that you have succeeded. ')
       fmtChallenge.append( 'Use the entire decrypted string as the secret key to ')
       fmtChallenge.append( 'send a message authentication code to the user with ')
-      fmtChallenge.append( 'your identifying information.  ')
-      fmtChallenge.append( '')
-      fmtChallenge.append( 'Send the user the following message authentication code:')
-      fmtChallenge.append( '   toHex(HMAC_SHA512(decrypted32, emailaddress)[:16])')
-      fmtChallenge.append( '')
+      fmtChallenge.append( 'your email address (or any other identifying information ')
+      fmtChallenge.append( 'you wish to use.')
+      fmtChallenge.append( '' )
+      fmtChallenge.append( 'The message authentication code is computed like this: ')
+      fmtChallenge.append( '   mac = toHex(HMAC_SHA512(decrypted32, emailaddress)[:32])')
+      fmtChallenge.append( '' )
       fmtChallenge.append( '-'*100 )
+      fmtChallenge.append( 'The following information is supplied by the user to ')
+      fmtChallenge.append( 'help you find the passphrase and submit your proof: ')
+      fmtChallenge.append( '' )
+      fmtChallenge.append( '   User email: ' + useremail )
+      fmtChallenge.append( '   User hints: ')
+      for i in range(0,len(userhints)+50, 50):
+         fmtChallenge.append( '      ' + userhints[50*i:50*(i+1)])
+      fmtChallenge.append( '' )
       fmtChallenge.append( '-'*100 )
+      return '\n'.join(fmtChallenge)
       
-      self.kdfObjID     = kdfAlgo
-      self.encryptAlgo  = encrAlgo
-      self.keySource    = keysrc
-      self.ivSource     = ivsrc
 
    #############################################################################
-   def testKeyRecoveryResponse(self, userstr, responseHex):
+   def testKeyRecoveryMAC(self, userstr, responseMacHex):
+      LOGINFO('Testing key recovery MAC:')
+
+      LOGINFO('   User Info :     %s', userstr)
       userstr = SecureBinaryData(userstr)
       hmac = HDWalletCrypto().HMAC_SHA512(self.testStringPlain, userstr)
-      return (self.testStringPlain.toBinStr()[:16]==hex_to_binary(response))
+
+      LOGINFO('   MAC (given):    %s', responseMacHex)
+      LOGINFO('   MAC (correct):  %s', hmac.toHexStr()[:64])
+      return (hmac.toHexStr()[:64]==responseMacHex)
    
 
          
@@ -12371,6 +12385,7 @@ class DeletedWalletEntry(object):
       self.nBytes = len(zeroStr)
       if not zeroStr.count('\x00')==self.nBytes:
          LOGERROR('Expecting all zero bytes in DeletedWalletEntry.') 
+      return self
       
 
 
@@ -12556,16 +12571,19 @@ class AddressLabel(object):
    FILECODE = 'LABL' 
 
    def __init__(self, label=''):
-      self.label = label
+      self.set(label)
 
    def set(self, lbl):
       self.label = toUnicode(lbl)
 
    def serialize(self):
-      return toBytes(self.label)
+      bp = BinaryPacker()
+      bp.put(BINARY_CHUNK, toBytes(self.label))
+      bp.addPaddingMod(32, '\x00')
+      return bp.getBinaryString()
 
    def unserialize(self, theStr):
-      self.label = toUnicode(theStr)
+      self.label = toUnicode(theStr.rstrip('\x00'))
       return label
 
 
@@ -12575,16 +12593,19 @@ class TxComment(object):
    FILECODE = 'COMM'
 
    def __init__(self, comm=''):
-      self.comm = comm
+      self.set(comm)
 
    def set(self, comm):
       self.comm = toUnicode(comm)
 
    def serialize(self):
-      return toBytes(self.comm)
+      bp = BinaryPacker()
+      bp.put(BINARY_CHUNK, toBytes(self.comm))
+      bp.addPaddingMod(32, '\x00')
+      return bp.getBinaryString()
 
    def unserialize(self, theStr):
-      self.comm = toUnicode(theStr)
+      self.comm = toUnicode(theStr.rstrip('\x00'))
       return self
 
 
@@ -12620,7 +12641,25 @@ class ArmoryFileHeader(object):
 
    def unserialize(self, theStr):
       toUnpack = makeBinaryUnpacker(theStr)
+      self.fileID     = bp.get(BINARY_CHUNK,   8)
+      self.armoryVer  = bp.get(UINT32)
+      magicbytes      = bp.get(BINARY_CHUNK,   4)
+      self.wltID      = bp.get(BINARY_CHUNK,   8)
+      flagsInt        = bp.get(UINT64)
+      self.createTime = bp.get(UINT64)
+      wltNameBin      = bp.get(BINARY_CHUNK,  32)
+      wltDescrBin     = bp.get(BINARY_CHUNK, 256)
+
+      if not magicbytes==MAGIC_BYTES:
+         LOGERROR('This wallet is for the wrong network!')
+         LOGERROR('   Wallet is for:  %s ', BLOCKCHAINS[magicbytes])
+         LOGERROR('   You are on:     %s ', BLOCKCHAINS[MAGIC_BYTES])
+         raise NetworkIDError
       
+      self.flags = BitSet().fromValue(flagsInt, 64)
+      self.wltName  = toUnicode(wltNameBin.rstrip('\x00'))
+      self.wltDescr = toUnicode(wltDescrBin.rstrip('\x00'))
+      return self
 
 
 
@@ -12769,11 +12808,7 @@ class WalletEntry(object):
          self.payloadPlain.wltEntryRef = self
 
       self.wltByteLoc = fileOffset
-
-
-   #############################################################################
-   def decryptPayload(self, permanent=False, **decryptData):
-      
+      return self
 
 
 
