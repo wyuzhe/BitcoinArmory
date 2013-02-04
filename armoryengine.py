@@ -37,7 +37,7 @@
 
 
 # Version Numbers 
-BTCARMORY_VERSION      = (0, 87, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
+BTCARMORY_VERSION      = (0, 90, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
 ARMORY_WALLET_VERSION  = (2,  0, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
 
 ARMORY_DONATION_ADDR = '1ArmoryXcfq7TnCSuZa9fQjRYwJ4bkRKfv'
@@ -146,7 +146,7 @@ def readVersionInt(verInt):
 print '********************************************************************************'
 print 'Loading Armory Engine:'
 print '   Armory Version:      ', getVersionString(BTCARMORY_VERSION)
-print '   PyBtcWallet  Version:', getVersionString(PYBTCWALLET_VERSION)
+print '   PyBtcWallet  Version:', getVersionString(ARMORY_WALLET_VERSION)
 
 # Get the host operating system
 import platform
@@ -650,7 +650,7 @@ LOGINFO('Invoked: ' + ' '.join(argv))
 LOGINFO('************************************************************')
 LOGINFO('Loading Armory Engine:')
 LOGINFO('   Armory Version        : ' + getVersionString(BTCARMORY_VERSION))
-LOGINFO('   PyBtcWallet  Version  : ' + getVersionString(PYBTCWALLET_VERSION))
+LOGINFO('   PyBtcWallet  Version  : ' + getVersionString(ARMORY_WALLET_VERSION))
 LOGINFO('Detected Operating system: ' + OS_NAME)
 LOGINFO('   User home-directory   : ' + USER_HOME_DIR)
 LOGINFO('   Satoshi BTC directory : ' + BTC_HOME_DIR)
@@ -1066,8 +1066,8 @@ class BitSet(object):
       n = 0
       for i,bit in enumerate(self.bits):
          n += bit * 2**i
-      if exp:
-         self.expand(exp)
+      #if exp:
+         #self.expand(exp)
       return n
 
    def fromValue(self, val, nbits=0):
@@ -1215,6 +1215,11 @@ def floatStr_to_ubtc(s):
 def float_to_btc (f):
    return long (round(f * ONE_BTC))
 
+##### We frequently want to pad strings for fixed width fields
+def addPadding(theStr, padTo, padByte='\x00'):
+   assert(padTo>0)
+   newLen = int((lenBytes(theStr)+padTo-1)/padTo) * padTo
+   return theStr + padByte*(newLen-lenBytes(theStr))
 
 
 ##### And a few useful utilities #####
@@ -1870,6 +1875,10 @@ def extendKey(parent, *args):
    M/2/9/4  = CKD(CKD(CKD(M, 2), 9) 4)
    etc...
 
+
+   The *args is the list of indices to traverse, i.e.
+            extendKey(parent, 2,9,4)
+   will retrieve m/2/9/4
    """
 
    if isinstance(parent, ArmoryAddress):
@@ -1911,13 +1920,13 @@ class ArmoryAddress(object):
    """
    ArmoryAddress --
 
-   This class encapsulated EVERY kind of address object:
+   This class encapsulates EVERY kind of address object:
       -- Plaintext private-key-bearing addresses
       -- Encrypted private key addresses, with AES locking and unlocking
       -- Watching-only public-key addresses
+      -- Hash160-only addresses (for watching)
       -- Serialization and unserialization of key data under all conditions
          (one exception is supported by the format but never used by Armory)
-      -- Checksums all serialized fields to protect against HDD byte errors
 
    The addresses follow the "Hierarchical Deterministic Wallet" spec
    laid out by sipa in:  https://gist.github.com/1799467
@@ -1927,6 +1936,7 @@ class ArmoryAddress(object):
    This method returns a string, but presumably will be used to write addr
    data to file.  The following format is used.
 
+      # TODO: Make sure this is correct after rewriting code
       Address160  (20 bytes) :  The 20-byte hash of the public key
       Version     ( 4 bytes) :  The wallet version that created addr
       Flags       ( 4 bytes) :  A variety of addr flags
@@ -1934,7 +1944,7 @@ class ArmoryAddress(object):
       tFirstSeen  (12 bytes) :  8 byte unix time + 4 byte block num
       tLastSeen   (12 bytes) :  8 byte unix time + 4 byte block num
       Parent160   (20 bytes) :  Parent node address (hash160)
-      Fingerprint ( 4 bytes) :  Fingerprint of parent key (for sipa wallet)
+      #Fingerprint( 4 bytes) :  Fingerprint of parent key (for sipa wallet)
       ChildID     (32 bytes) :  8 byte unix time + 4 byte block num
       PrivKey     (32 bytes) :  Private key data (may be encrypted)
       PublicKey   (65 bytes) :  Public key for this address
@@ -1952,26 +1962,32 @@ class ArmoryAddress(object):
       because that is what is required by the C++ code.  See EncryptionUtils.h
       to see that available methods.
       """
-      self.versionInt            = getVersionInt(PYBTCWALLET_VERSION) # created-by wallet ver
       self.binAddr160            = ''                                     
       self.binPubKey33or65       = SecureBinaryData()  # Compressed or not
       self.binPrivKey32_Encr     = SecureBinaryData()  # BIG-ENDIAN
       self.binPrivKey32_Plain    = SecureBinaryData()
       self.childIdentifier       = UINT32_MAX   # may allow strings in the future
       self.hdwDepth              = 0
+      self.indexList             = []
       self.isLocked              = False
       self.useEncryption         = False
       self.isInitialized         = False
       self.walletByteLoc         = -1
+
+      # We will simply store flag to identify if this address is intended
+      # to be used as part of multi-sig ... it's a lot of extra data to
+      # store the full multi-sig details, and that should be stored with
+      # the root... this will just be for sanity checking out of context.
+      self.partOfMultiSig        = UNKNOWN
 
       # We will allow one-level generation of keys from a parent.  Beyond that,
       # it is difficult to encode arbitrarily-deep chain information efficiently
       # In the PyBtcAddress serialization.  This is acceptable for most use 
       # cases though:  we can generate new addresses from an existing chain,
       # but we can't create new chains without unlocking first
-      self.parentAddr160         = ''
-      self.parentFingerprint     = ''
+      self.parentHash160         = ''
       self.needToDerivePrivKey   = False
+      self.encryptDef            = EncryptionDef(None)
 
       # Information to be used by C++ to know where to search for transactions
       # in the blockchain, or at least track when it was created
@@ -1980,7 +1996,6 @@ class ArmoryAddress(object):
       self.whenFirstSeen = [UNKNOWN_TIME, UNKNOWN_BLOCK]
       self.whenLastSeen  = [UNKNOWN_TIME, UNKNOWN_BLOCK]
 
-
       # Our wallet files may eventually evolve to import other types of wallets
       # or addresses.  Leave some room to have PyBtcAddress assume other types 
       # of addresses (such as ARMORY_1.35 addresses)
@@ -1988,6 +2003,10 @@ class ArmoryAddress(object):
       self.addressVersion = getVersionInt(ARMORY_WALLET_VERSION) 
       self.extraAttributes = {}
 
+      self.parentWltRef  = None
+      self.parentRootRef = None
+
+      self.tim
 
 
    #############################################################################
@@ -2015,7 +2034,8 @@ class ArmoryAddress(object):
       """
       This was a smart technique I didn't think about when I created 1.35 --
       Use the address itself as the IV.  It is a hash value which has enough
-      entropy to be used as an IV, and unique.  
+      entropy to be used as an IV, and unique.  IV doesn't have to be secret,
+      it only has to be different for many data encrypted with the same key.
       """
       if len(self.getAddr160())==0:
          raise BadAddressError, 'No address available for IV computation'
@@ -2043,6 +2063,14 @@ class ArmoryAddress(object):
    def hasChaincode(self):
       return (    self.binChaincode.getSize() == 32 and \
               not self.binChaincode.toBinStr()=='\x00'*32)
+
+   #############################################################################
+   def hasParentWlt(self):
+      return self.parentWltRef == None
+
+   #############################################################################
+   def hasParentRootRef(self):
+      return self.parentRootRef == None
 
    #############################################################################
    def getAddrStr(self, netbyte=ADDRBYTE):
@@ -2073,9 +2101,9 @@ class ArmoryAddress(object):
       secondary.  
       """
       if self.blkRange[0]==0:
-         self.blkRange[0]=2**32-1
+         self.blkRange[0]=UNKNOWN_BLOCK
       if self.timeRange[0]==0:
-         self.timeRange[0]=2**32-1
+         self.timeRange[0]=UNKNOWN_TIME
 
       if blkNum==None:
          if TheBDM.getBDMState()=='BlockchainReady':
@@ -2092,7 +2120,7 @@ class ArmoryAddress(object):
       if unixTime==None:
          unixTime = RightNow()
          if blkNum==None:
-            if TheBDM.isInitialized():
+            if TheBDM.getBDMState()=='BlockchainReady':
                blkNum = TheBDM.getTopBlockHeader().getBlockHeight()
 
       if self.whenFirstSeen[0]==UNKNOWN_TIME:
@@ -2122,6 +2150,8 @@ class ArmoryAddress(object):
    #############################################################################
    def copy(self):
       raise NotImplementedError
+      # TODO: make sure we are actually copying everything... not doing so
+      #       can lead to some very long debug times...
       newAddr = PyBtcAddress().unserialize(self.serialize())
       newAddr.binAddr160         = self.binAddr160[:]
       newAddr.binPrivKey32_Plain = self.binPrivKey32_Plain.copy()
@@ -2134,24 +2164,46 @@ class ArmoryAddress(object):
       newAddr.chainIndex         = self.chainIndex
 
       newAddr.parentAddr160      = self.parentAddr160[:]
-      newAddr.parentFingerprint  = self.parentFingerprint[:]
-      newAddr.encryptedParentPriv= self.encryptedParentPriv.copy()
       newAddr.childIdentifier    = self.childIdentifier
       newAddr.hdwDepth           = self.hdwDepth
+      newAddr.indexList          = self.indexList[:]
 
-      newAddr.whenCreated   = self.whenCreated[:]
-      newAddr.whenFirstSeen = self.whenFirstSeen[:]
-      newAddr.whenLastSeen  = self.whenLastSeen[:]
+      newAddr.whenCreated        = self.whenCreated[:]
+      newAddr.whenFirstSeen      = self.whenFirstSeen[:]
+      newAddr.whenLastSeen       = self.whenLastSeen[:]
 
-      newAddr.addressSource   = self.addressSource[:]
-      newAddr.addressVersion  = self.addressVersion
-      newAddr.extraAttributes = self.extraAttributes.copy()
+      newAddr.addressSource      = self.addressSource[:]
+      newAddr.addressVersion     = self.addressVersion
+      newAddr.extraAttributes    = self.extraAttributes.copy()
 
-
+      newAddr.partOfMultiSig     = self.partOfMultiSig
+      newAddr.parentWltRef       = self.parentWltRef
+      newAddr.parentRootRef      = self.parentRootRef
+      newAddr.encryptDef         = self.encryptDef
 
       return newAddr
 
 
+   #############################################################################
+   def copyAttributesFrom(self, otherObj):
+      if isinstance(otherObj, ArmoryAddress):
+         self.partOfMultiSig = otherObj.partOfMultiSig
+         self.parentWltRef   = otherObj.parentWltRef
+         self.useEncryption  = otherObj.useEncryption
+         self.addressSource  = otherObj.addressSource
+         self.addressVersion = otherObj.addressVersion
+         self.encryptDef     = otherObj.encryptDef
+      elif isinstance(otherObj, ArmoryRoot):
+         self.parentRootRef  = otherObj
+         self.parentWltRef   = otherObj.parentWltRef
+         self.partOfMultiSig = otherObj.relationship.isMultiSig()
+         self.useEncryption  = otherObj.useEncryption
+         self.addressSource  = otherObj.addressSource
+         self.addressVersion = otherObj.addressVersion
+         self.encryptDef     = otherObj.privKeyEncryptDef
+      elif isinstance(otherObj, ArmoryWalletFile):
+         self.parentWltRef   = otherObj
+         self.encryptDef     = otherObj.defaultInnerEncrypt
 
    #############################################################################
    def getCreationTime(self):
@@ -2188,9 +2240,8 @@ class ArmoryAddress(object):
             raise WalletLockError, 'Invalid decryption key'
          self.unlock(decryptKey, skipCheck=False)
 
-      netbyte   = '\x80' if not USE_TESTNET           else '\xef'
       comprbyte = '\x01' if self.isCompressedPubKey() else ''
-      output = netbyte + self.binPrivKey32_Plain + comprbyte
+      output = PRIVKEYBYTE + self.binPrivKey32_Plain + comprbyte
       output += computeChecksum(output)
       return output
       
@@ -2218,11 +2269,8 @@ class ArmoryAddress(object):
 
    
    #############################################################################
-   def getFingerprint(self):
-      extKey = ExtendedKey(  SecureBinaryData(0),
-                             SecureBinaryData(self.binPubKey33or65),
-                             SecureBinaryData(self.binChaincode))
-      return extKey.getFingerprint()
+   def getHash160(self):
+      return hash160(self.binPubKey33or65.toBinStr())
 
 
    #############################################################################
@@ -2230,14 +2278,14 @@ class ArmoryAddress(object):
       """
       Determine if this data is the decryption key for this encrypted address
       """
-      if not self.useEncryption or not self.hasPrivKey() or decryptKey==None:
+      if not self.useEncryption:
+         LOGWARN('Trying to verify crypto key on unencrypted address')
          return False
 
-      #if not self.useEncryption or not self.hasPrivKey():
-         #return False
+      if not self.hasPrivKey():
+         LOGWARN('Trying to verify encryption on observer address')
+         return False
 
-      #if self.useEncryption and not secureKdfOutput:
-         #LOGERROR('No encryption key supplied to verifyEncryption!')
 
       decryptedKey = CryptoAES().DecryptCFB( self.binPrivKey32_Encr, \
                                              SecureBinaryData(decryptKey), \
@@ -2253,10 +2301,6 @@ class ArmoryAddress(object):
                                                          self.isCompressedPubKey())
          verified = (self.binPubKey33or65==computedPubKey)
 
-         #if computedPubKey.getHash160()==self.binAddr160:
-            #self.binPubKey33or65 = computedPubKey
-            #verified = True
-
       decryptedKey.destroy()
       return verified
 
@@ -2264,16 +2308,15 @@ class ArmoryAddress(object):
 
 
    #############################################################################
-   def createFromEncryptedKeyData(self, encrPrivKey32or33, pubKey, addr160=None,\
-                                                                   chkSum=None):
+   def createFromEncryptedKeyData(self, encrPrivKey32or33, pubKey=None, \
+                                 addr160=None, childID=UNKNOWN, parent160=None, \
+                                 indexList=[], parentWltRef=None):
+                                                                   
       """
       This method now requires the public key, so that it can be determined 
       whether the key is encrypted or not, and guarantee that the ArmoryAddress
       object has a public key (which is assumed to be present for all methods)
       """
-      if chkSum:
-         assert(verifyChecksum(encrPrivKey32or33, chkSum))
-
       self.__init__()
       doCompr = (encrPrivKey32or33.getSize()==33 or pubKey.getSize()==33)
 
@@ -2290,24 +2333,27 @@ class ArmoryAddress(object):
       self.isLocked      = True
       self.isInitialized = True
 
+      self.childIdentifier       = childID
+
+      self.hdwDepth              = len(indexList)
+      self.indexList             = indexList[:]
+      self.parentAddr160         = parent160
+      self.parentWltRef          = parentWltRef
+
       return self
 
 
 
    #############################################################################
    def createFromPlainKeyData(self, plainPrivKey, addr160=None, willBeEncr=False, \
-                                    chksum=None, pubKey33or65=None, doCompr=None, \
-                                    skipCheck=False, chain=None):
+                                    pubKey33or65=None, doCompr=None, \
+                                    skipCheck=False, chain=None, \
+                                    parentWltRef=None):
 
       """
       If pass in a 33-byte priv, assumed compressed
       If pass in a 32-byte priv, assumed uncompressed unless doCompr is True
       """
-
-      if chksum:
-         if not verifyChecksum(plainPrivKey.toBinStr(), chksum) and \
-            not verifyChecksum(plainPrivKey.toBinStr()[:32], chksum):
-            raise ChecksumError, "Checksum doesn't match plaintext priv key!"
 
       expectCompressed = (doCompr==True)
 
@@ -2332,14 +2378,13 @@ class ArmoryAddress(object):
       elif not addr160==pubKey33or65.getHash160():
          raise KeyDataError, 'Supplied hash160 and public key do not match!'
 
-
-
       self.__init__()
       self.binAddr160          = addr160
       self.binPrivKey32_Plain  = plainPrivKey.copy()
       self.binPubKey33or65     = SecureBinaryData(pubKey33or65)
       self.isLocked            = False
       self.useEncryption       = willBeEncr
+      self.parentWltRef        = parentWltRef
 
       if chain:
          self.binChaincode = SecureBinaryData(chain)
@@ -2349,7 +2394,8 @@ class ArmoryAddress(object):
 
 
    #############################################################################
-   def createFromPublicKeyData(self, pubKey33or65, chksum=None, chain=None):
+   def createFromPublicKeyData(self, pubKey33or65, chksum=None, chain=None, \
+                               parentWltRef=None):
 
       pubKey33or65 = SecureBinaryData(pubKey33or65)
 
@@ -2360,6 +2406,7 @@ class ArmoryAddress(object):
       self.isInitialized = True
       self.isLocked = False
       self.useEncryption = False
+      self.parentWltRef = parentWltRef
 
       if chksum and not verifyChecksum(self.binPubKey33or65.toBinStr(), chksum):
          raise ChecksumError, "Checksum doesn't match supplied public key!"
@@ -2577,6 +2624,9 @@ class ArmoryAddress(object):
          # We add an extra 0 byte to the beginning of each value to guarantee
          # that they are interpretted as unsigned integers.  Not always necessary
          # but it doesn't hurt to always do it.
+
+         # TODO: Must update signature generation to canonical form!
+         fkljewi lkjflskd  # trigger error to remind myself later
          rBin   = '\x00' + sigstr[:32 ]
          sBin   = '\x00' + sigstr[ 32:]
          rSize  = int_to_binary(len(rBin))
@@ -2692,44 +2742,66 @@ class ArmoryAddress(object):
       privAvail = self.getPrivKeyAvailability()
       if privAvail==PRIV_KEY_AVAIL.NextUnlock:
          LOGERROR('Cannot allow multi-level priv key generation while locked')
-         raise KeyDataError, 
+         LOGERROR('i.e. If your wallet has previously computed m/x and M/x,')
+         LOGERROR('but it is currently encrypted, then it can spawn m/x/y by')
+         LOGERROR('storing the encrypted version of m/x and its chaincode')
+         LOGERROR('and then computing it on next unlock.  But if m/x/y is ')
+         LOGERROR('currently in that state, you cannot then spawn m/x/y/z ')
+         LOGERROR('until you have unlocked m/x/y once.  This is what is ')
+         LOGERROR('meant by "multi-level key generation while locked')
+         raise KeyDataError, 'Cannot do multi-level priv key gen while locked'
                               
       wasLocked  = False
-      if privAvail==PRIV_KEY_AVAIL.Encrypted and self.verifyEncryptionKey(decryptKey):
-         self.unlock(decryptKey)
-         privAvail = PRIV_KEY_AVAIL.Plain
-         wasLocked = True
+      if privAvail==PRIV_KEY_AVAIL.Encrypted:
+         if not self.verifyEncryptionKey(decryptKey):
+            raise PassphraseError, 'Incorrect passphrase entered to spawn child'
+         else:
+            self.unlock(decryptKey)
+            privAvail = PRIV_KEY_AVAIL.Plain
+            wasLocked = True # will re-lock at the end of this operation
 
 
-      # We should have an unencrypted private key, if we're supposed to have one
-      childAddr = PyBtcAddress()
+      # If we have key data and it's encrypted, it's decrypted by now.
+      # extchild has priv key if we have privavail == plain.  Else, we extend
+      # only the public part
+      childAddr = ArmoryAddress()
       extChild  = HDWalletCrypto().ChildKeyDeriv(self.getExtendedKey(), childID)
+
+      # In all cases we compute a new public key and chaincode
+      childAddr.binPubKey33or65 = extChild.getPub().copy()
+      childAddr.binChaincode    = extChild.getChain().copy()
+
       if privAvail==PRIV_KEY_AVAIL.Plain:
-         # We are extending a chain using private key data
+         # We are extending a chain using private key data (unencrypted)
          childAddr.binPrivKey32_Plain  = extChild.getPriv().copy()
-         childAddr.binPubKey33or65     = extChild.getPub().copy()
-         childAddr.binChaincode        = extChild.getChain().copy()
+         childAddr.needToDerivePrivKey = False
+      elif privAvail==PRIV_KEY_AVAIL.NextUnlock:
+         # Copy the parent's encrypted key data to child, set flag
+         childAddr.binPrivKey32_Encr = self.binPrivKey32_Encr.copy()
+         childAddr.binChaincode      = self.binChaincode.copy()
+         childAddr.needToDerivePrivKey = True
+      elif privAvail==PRIV_KEY_AVAIL.None:
+         # Probably just extending a public key
+         childAddr.binPrivKey32_Plain  = SecureBinaryData(0)
          childAddr.needToDerivePrivKey = False
       else:
-         childAddr.binPrivKey32_Plain  = SecureBinaryData(0)
-         childAddr.binPubKey33or65     = extChild.getPub().copy()
-         childAddr.binChaincode        = extChild.getChain().copy()
-         childAddr.needToDerivePrivKey = False
-
-         if privAvail==PRIV_KEY_AVAIL.Encrypted:
-            childAddr.binPrivKey32_Encr = self.binPrivKey32_Encr.copy()
-            childAddr.binChaincode      = self.binChaincode.copy()
-            childAddr.needToDerivePrivKey = True
+         LOGERROR('How did we get here?  spawnchild:')
+         LOGERROR('   privAvail == %s', privAvail)
+         LOGERROR('   encrypt   == %s', self.useEncryption)
+         LOGERROR('Bailing without spawning child')
+         raise KeyDataError
    
-      childAddr.parentFingerprint  = extChild.getParentFingerprint().copy()
+      childAddr.parentHash160      = extChild.getParentHash160().copy()
       childAddr.binAddr160         = self.binPubKey33or65.getHash160()
       childAddr.useEncryption      = self.useEncryption
       childAddr.isInitialized      = True
       childAddr.childIdentifier    = childID
       childAddr.hdwDepth           = self.hdwDepth+1
+      childAddr.indexList          = self.indexList[:]
+      childAddr.indexList.append(childID)
 
-      # We can't get here without a decryptKey (I think)
-      if childAddr.useEncryption:
+      if childAddr.useEncryption and not childAddr.needToDerivePrivKey:
+         # We can't get here without a [valid] decryptKey 
          childAddr.lock(decryptKey)
          if not wasLocked:
             childAddr.unlock(decryptKey)
@@ -2743,57 +2815,40 @@ class ArmoryAddress(object):
       See comment field of base class (PyBtcAddress) for serialization details
       """
 
-      serializeWithEncryption = self.useEncryption
-
-      if serializeWithEncryption and self.hasPlainPriv() and not self.hasEncrPriv():
+      if self.useEncryption and self.hasPlainPriv() and not self.hasEncrPriv():
          # I'd rather fail than write unencrypted key data that the user thinks
          # is encrypted
-         print ''
-         print '***WARNING: you have chosen to serialize a key you hope to be'
-         print '            encrypted, but have not yet chosen a passphrase for'
-         print '            it.  The only way to serialize this address is with '
-         print '            the plaintext keys.  Please lock this address at'
-         print '            least once in order to enable encrypted output.'
+         LOGWARN('***WARNING: you have chosen to serialize a key you hope to be')
+         LOGWARN('            encrypted, but have not yet chosen a passphrase for')
+         LOGWARN('            it.  The only way to serialize this address is with ')
+         LOGWARN('            the plaintext keys.  Please lock this address at')
+         LOGWARN('            least once in order to enable encrypted output.')
          raise WalletLockError, 'Request to write encr key, but only plain key aviail'
 
       # Before starting, let's construct the flags for this address
-      # NOTE: If flag 3 is set, it means that the priv key and chain 
-      #       index are for the parent key, and this priv key should 
-      #       be derived on the next unlock.  This scheme can only 
-      #       support one layer of isolated key derivation.
-      #     
-      #       Flag 4 would be used to identify that external data is
-      #       needed to derive the private key for this address even
-      #       with the decryption key.  This might happen if we derive
-      #       a chain of addresses with only the public components.
-      #       This should not happen as a result of any regular Armory
-      #       operation, but is included here in the serialization in
-      #       case of future use, or another client uses the field
-      nFlagBytes = 8
-      flags = [False]*nFlagBytes*8
-      flags[0] = self.hasPrivKey()
-      flags[1] = self.hasPubKey()
-      flags[2] = serializeWithEncryption
-      flags[3] = self.needToDerivePrivKey
-      flags[4] = False 
-      flagsBitset = ''.join([('1' if f else '0') for f in flags])
+      # NOTE: If needToDerivePrivKey it means that the priv key data
+      #       stored for this address is actually the encrypted data
+      #       of its parent address.  This is because we need to be 
+      #       able to spawn children of encrypted wallet addresses 
+      #       without unlocking the wallet (we can do it for observer
+      #       wallets, why not encrypted wallets?)  The actual priv
+      #       key data will be computed on next unlock.
+      flags = BitSet(64)
+      flags.setBit(0, self.hasPrivKey())
+      flags.setBit(1, self.hasPubKey())
+      flags.setBit(2, self.isCompressedPubKey())
+      flags.setBit(3, self.useEncryption)
+      flags.setBit(4, self.needToDerivePrivKey)
+      flags.setBit(5, self.partOfMultiSig)
+      flags.setBit(6, len(self.indexList) > 4)
 
       def raw(a):
-         if isinstance(a, str):
-            return a
-         else:
-            return a.toBinStr()
+         return (toBytes(a) if isinstance(a, basestring) else a.toBinStr())
 
-      # Use BinaryPacker "width" fields to guaranteee BINARY_CHUNK width.
-      # Sure, if we have malformed data we might cut some of it off instead
-      # of writing it to the binary stream.  But at least we'll ALWAYS be
-      # able to determine where each field is, and will never corrupt the
-      # whole wallet so badly we have to go hex-diving to figure out what
-      # happened.
       stream = BinaryPacker()
       stream.put(BINARY_CHUNK,   self.addressSource,                 width=12)
       stream.put(UINT32,         self.versionInt)
-      stream.put(UINT64,         bitset_to_int(flags))
+      stream.put(UINT64,         flags.toValue())
       stream.put(BINARY_CHUNK,   self.binAddr160,                    width=20)
 
       # Key relevance info (first 32
@@ -2810,7 +2865,11 @@ class ArmoryAddress(object):
       stream.put(UINT32,         self.childIdentifier)
       stream.put(UINT8,          self.hdwDepth % 256)
 
-      if serializeWithEncryption or self.needToDerivePrivKey:
+      # Write out up to four indices... all "standard" usage uses up to three
+      for i in range(4):
+         stream.put(UINT32, self.indexList[i] if len(self.indexList)>=i+1 else 0)
+
+      if self.useEncryption or self.needToDerivePrivKey:
          stream.put(BINARY_CHUNK,   raw(self.binPrivKey32_Encr),     width=32)
       else:
          stream.put(BINARY_CHUNK,   raw(self.binPrivKey32_Plain),    width=32)
@@ -2867,7 +2926,6 @@ class ArmoryAddress(object):
       containsPubKey               = (flags[1]=='1')
       self.useEncryption           = (flags[2]=='1')
       self.needToDerivePrivKey     = (flags[3]=='1')
-      self.needExternalKeyData     = (flags[4]=='1')
 
       # Key times...
       self.whenCreated[0]    =     serializedData.get(UINT64)
@@ -6207,8 +6265,7 @@ class PyBtcWallet(object):
    def __init__(self):
       self.fileTypeStr    = '\xbaWALLET\x00'
       self.magicBytes     = MAGIC_BYTES
-      self.version        = PYBTCWALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
-      self.eofByte        = 0
+      self.version        = (1,35,0,0)  # Old wallet type.
       self.cppWallet      = None   # Mirror of PyBtcWallet in C++ object
       self.cppInfo        = {}     # Extra info about each address to help sync
       self.watchingOnly   = False
@@ -11715,9 +11772,6 @@ class EncryptionDef(object):
               self.keySource==NULLSTR8 and \
               self.ivSource==NULLSTR8)
 
-   ############################################################################
-   def isEncrypted(self):
-      return not self.noEncryption()
 
    ############################################################################
    def useKeyDerivFunc(self):
@@ -11760,6 +11814,30 @@ class EncryptionDef(object):
          return (CRYPT_KEY_SRC.OBJECT, self.keySource)
 
 
+
+   ############################################################################
+   def getBlockSize(self):
+      if(self.encryptAlgo.startswith('AE256'):
+         return 16
+      else:
+         raise EncryptionError, 'Unknown encryption blocksize'
+
+
+   ############################################################################
+   def getKeySize(self):
+      # This is the keysize expected for this *EncryptionDef* object, not the
+      # encryptAlgo of it.  In other words, this is to let us know the expected
+      # size of the input -- if this EncryptionDef uses a KDF, there is no 
+      # expected size.  Only if the no-KDF but does have encryptAlgo, then we
+      # return the key size of that algo.
+      if self.useKeyDerivFunc() or self.encryptAlgo:
+         return 0
+      elif(self.encryptAlgo.startswith('AE256'):
+         return 32
+      else:
+         raise EncryptionError, 'Unknown encryption keysize'
+
+
    ############################################################################
    def getEncryptIVSrc(self):
       if self.ivSource=='PUBKEY20':
@@ -11797,11 +11875,23 @@ class EncryptionDef(object):
       then keydata is simply the encryption key, provided by the calling func
       while likely checked the keySource and ivSource and fetched appropriate 
       data for encryption/decryption.
+
       """
+
 
       # Make sure all the data is in SBD form -- will also be easier to destroy
       plaintext = SecureBinaryData(plaintext)
       keydata   = SecureBinaryData(keydata)
+
+
+      # We need to fail if plaintext is not padded to the blocksize of the
+      # cipher.  The reason is that this function should only pass out encrypted
+      # data that exactly corresponds to the input, not some variant of it.  
+      # If the data needs to be padded, the calling method can ask this EncrDef
+      # object for the cipher blocksize, and pad it before passing in (and also
+      # take note somewhere of what the original datasize was).
+      if not (plaintext.getSize() % self.getBlockSize() == 0):
+         raise EncryptionError, 'Unpadded input (use %d)' % self.getBlockSize()
 
       # IV data might actually be part of this object, not supplied
       if not self.hasStoredIV():
@@ -11839,7 +11929,7 @@ class EncryptionDef(object):
 
 
    ############################################################################
-   def decrypt(self, ciphertext, keydata, ivdata):
+   def decrypt(self, ciphertext, keydata, ivdata=None):
       """
       Here, "keydata" may actually be a passphrase entered by the user, which 
       will get stretched into the actual encryption key.  If there is no KDF,
@@ -12094,7 +12184,7 @@ class EncryptionKey(object):
 
       # We may cache the decrypted key      
       self.masterKeyPlain      = SecureBinaryData(0)
-      self.timeUnlocked        = 0
+      self.relockAtTime        = 0
       self.lockTimeout         = 10
 
 
@@ -12127,11 +12217,10 @@ class EncryptionKey(object):
             LOGERROR('Wrong passphrase passed to EKEY unlock function.')
             self.masterKeyPlain.destroy()
             return False
-         self.timeUnlocked = RightNow()
+         self.relockAtTime = RightNow() + self.lockTimeout
          return True
-      except:
+      finally:
          passphrase.destroy()
-         raise
 
 
 
@@ -12151,10 +12240,17 @@ class EncryptionKey(object):
       self.masterKeyPlain.destroy()
 
 
+   #############################################################################
+   def setLockTimeout(self, newTimeout): 
+      self.lockTimeout = newTimeout
 
    #############################################################################
    def checkLockTimeout(self): 
-      if RightNow() > self.timeUnlocked+self.lockTimeout:
+      """ timeout=0 means never expires """
+      if self.lockTimeout<=0:
+         return
+         
+      if RightNow() > self.relockAtTime:
          self.lock()
 
 
@@ -12243,7 +12339,7 @@ class EncryptionKey(object):
             raise UnrecognizedCrypto
          self.ekeyType = masterKeyType
          
-      # Master encryption keys will always be stored with 
+      # Master encryption keys will always be stored with IV
       storedIV = SecureBinaryData().GenerateRandom(8)
       self.encryptInfo = EncryptionDef(kdfID, encryptKeyAlgo, 'PASSWORD', storedIV)
 
@@ -12431,6 +12527,8 @@ class RootRelationship(object):
       # Isn't implemented yet, but we might as well have a placeholder for it
       self.complexRelationship = complexRelate
 
+   def isMultiSig(self):
+      return not (MofN in (MULTISIG_UNKNOWN, MULTISIG_NONE, MULTISIG_1of1))
 
    def serialize(self):
       if not self.complexRelationship: 
@@ -12480,6 +12578,7 @@ class RootRelationship(object):
 #############################################################################
 class ArmoryRoot(object):
       
+   def __init__(self):
       self.wltCreateDate = 0
       self.labelName   = ''
       self.labelDescr  = ''
@@ -12491,14 +12590,25 @@ class ArmoryRoot(object):
       self.p2shMap       = {}  # maps raw P2SH scripts to full scripts.
 
       self.relationship   = RootRelationship(None)
-      self.privKeyEncrypt = EncryptionDef(None)
-      self.outerEncrypt   = EncryptionDef(None)
+      self.privKeyEncryptDef = EncryptionDef(None)
+      self.outerEncryptDef   = EncryptionDef(None)
+
+      self.uniqueIDBin = ''
+      self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
+      self.lastComputedChainAddr160  = ''
+      self.lastComputedChainIndex = 0
+      self.highestUsedChainIndex  = 0 
+      self.lastSyncBlockNum = 0
+
+      self.parentWltRef = None
+
+      self.wltVersion = ARMORY_WALLET_VERSION
+      self.wltSource  = 'ARMORY'.ljust(12, '\x00')
 
       """
       self.fileTypeStr    = '\xbaWALLET\x00'
       self.magicBytes     = MAGIC_BYTES
       self.version        = PYBTCWALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
-      self.eofByte        = 0
       self.cppWallet      = None   # Mirror of PyBtcWallet in C++ object
       self.cppInfo        = {}     # Extra info about each address to help sync
       self.watchingOnly   = False
@@ -12565,6 +12675,47 @@ class ArmoryRoot(object):
       self.offsetCrypto    = -1
       """
 
+   #############################################################################
+   def advanceHighestIndex(self, ct=1):
+      topIndex = self.highestUsedChainIndex + ct
+      topIndex = min(topIndex, self.lastComputedChainIndex)
+      topIndex = max(topIndex, 0)
+
+      self.highestUsedChainIndex = topIndex
+      self.walletFileSafeUpdate( [[WLT_UPDATE_MODIFY, self.offsetTopUsed, \
+                    int_to_binary(self.highestUsedChainIndex, widthBytes=8)]])
+      self.fillAddressPool()
+      
+   #############################################################################
+   def rewindHighestIndex(self, ct=1):
+      self.advanceHighestIndex(-ct)
+
+
+   #############################################################################
+   def peekNextUnusedAddr160(self):
+      try:
+         return self.getAddress160ByChainIndex(self.highestUsedChainIndex+1)
+      except:
+         # Not sure why we'd fail, maybe addrPoolSize==0?
+         return ''
+
+   #############################################################################
+   def getNextUnusedAddress(self):
+      if self.lastComputedChainIndex - self.highestUsedChainIndex < \
+                                              max(self.addrPoolSize-1,1):
+         self.fillAddressPool(self.addrPoolSize)
+
+      self.advanceHighestIndex(1)
+      new160 = self.getAddress160ByChainIndex(self.highestUsedChainIndex)
+      self.addrMap[new160].touch()
+      self.walletFileSafeUpdate( [[WLT_UPDATE_MODIFY, \
+                                  self.addrMap[new160].walletByteLoc, \
+                                  self.addrMap[new160].serialize()]]  )
+      return self.addrMap[new160]
+
+
+   #############################################################################
+
 ################################################################################
 class AddressLabel(object):
   
@@ -12578,8 +12729,7 @@ class AddressLabel(object):
 
    def serialize(self):
       bp = BinaryPacker()
-      bp.put(BINARY_CHUNK, toBytes(self.label))
-      bp.addPaddingMod(32, '\x00')
+      bp.put(BINARY_CHUNK, toBytes(self.label), widthBytes=32)
       return bp.getBinaryString()
 
    def unserialize(self, theStr):
@@ -12600,8 +12750,7 @@ class TxComment(object):
 
    def serialize(self):
       bp = BinaryPacker()
-      bp.put(BINARY_CHUNK, toBytes(self.comm))
-      bp.addPaddingMod(32, '\x00')
+      bp.put(BINARY_CHUNK, toBytes(self.comm), widthBytes=32)
       return bp.getBinaryString()
 
    def unserialize(self, theStr):
@@ -12709,45 +12858,96 @@ class WalletEntry(object):
                    'KALG': KdfObject,
                    'SIGN': WltEntrySignature }
 
+   WLTENTRYCODES = {} 
+
    #############################################################################
-   def __init__(self, wltFileRef=None, parentRoot=None, payload=None, isEncr=False):
-      self.payloadPlain    = (None    if isEncr else payload)
-      self.payloadEncrypt  = (payload if isEncr else None   )
+   def __init__(self, wltFileRef=None, wltByteLoc=-1, parentRoot=None, \
+                payload=None, encr=EncryptionDef(None), payloadSize=None):
       self.wltFileRef      = wltFileRef
       self.wltByteLoc      = wltByteLoc
       self.parentRoot160   = parentRoot
-      self.encryptInfo     = EncryptionDef(None)
+      self.encryptInfo     = encr
+      self.setPayload(payload, encr, payloadSize)
 
       # Create a reverse lookup of classes to codes
       if len(self.WLTENTRYCODES)==0:
          for key,val in self.WLTENTRYCLASS.iteritems():
             self.WLTENTRYCODES[val] = key
 
+      self.lockTimeout  = 10   # seconds after unlock, that key is discarded
+      self.relockAtTime = 0    # seconds after unlock, that key is discarded
 
-   def isEncrypted(self,
 
    #############################################################################
-   def serialize(self):
-      if not self.payload:
-         LOGERROR('Cannot serialize a WalletEntry without a payload')
-         return ''
+   def setPayload(self, payload, encr=EncryptionDef(None), payloadSize=None):
+      doEncr = 
+      self.payloadPlain    = (None    if isEncr else payload)
+      self.payloadEncrypt  = (payload if isEncr else None   )
+      if not payloadSize==None:
+         self.payloadSize = payloadSize
+      else:
+         if payload==None:
+            self.payloadSize=0
+         elif isEncr:
+            LOGWARN('Defaulting to using size of encrypted payload.  Make ')
+            LOGWARN('sure this is what you wanted!  (encrypted payloads ')
+            LOGWARN('should almost always have a size specified)')
+            self.payloadSize = lenBytes(payload)
+         else:
+            self.payloadSize = lenBytes(payload.serialize())
+
+
+   #############################################################################
+   def serialize(self, padTo=16):
+      """ 
+      Note that if we use padding, that weBytes still refers to the original
+      length of the serialized data.  This is so that we know how to separate
+      the serialized data from the padding bytes.  However, we still want to 
+      checksum the final data written to the file, not the unencrypted data.
+      Therefore, the checksum will be computed after the encryption is applied
+      making it easy to check the integrity without decrypting.
+
+      Note, we always pad out to 32 bytes since it doesn't really matter, but
+      it means we can always encrypt, in-place if we want to switch -- if we
+      start with unencrypted data, but then switch to encrypted, we know that
+      the encrypted form will fit in the same place as the unencrypted form.
+      We choose 16 by default, since that is the blocksize of AES256. 
+
+      """
 
       weCode    = self.WLTENTRYCODES[self.payload.__class__]
       weData    = toBytes(self.payload.serialize())
       weBytes   = lenBytes(weData) 
+
+      # We may have to decrypt
+      if not self.payloadPlain:
+         if self.payloadEncrypt:
+            
+         LOGERROR('Cannot serialize a WalletEntry without a payload')
+         return ''
+
+      # Pad to 32 bytes since that covers just about everything
+      if padTo>0:
+         weData = addPadding(weData, padTo, '\x00')
+
+      if not self.encryptInfo.noEncryption():
+
       weChk     = computeChecksum(weData)
 
       bp = BinaryPacker() 
       bp.put(BINARY_CHUNK, weCode,                           widthBytes= 4)
-      bp.put(UINT32, weBytes)                               #widthBytes= 4
+      bp.put(UINT32,       weBytes)                         #widthBytes= 4
       bp.put(BINARY_CHUNK, self.parentRoot160,               widthBytes=20)
       bp.put(BINARY_CHUNK, self.encryptInfo.serialize())    #widthBytes=64
 
       weHeadChk = computeChecksum(bp.getBinaryString())
       bp.put(BINARY_CHUNK, weHeadChk,                        widthBytes= 4)
 
-      bp.put(BINARY_CHUNK, weData,                           widthBytes=weBytes)
+      bp.put(BINARY_CHUNK, weData)                          #width=weData+Padding
       bp.put(BINARY_CHUNK, weChk,                            widthBytes= 4)
+
+      082 230 3865
+      089 664 0246
       return bp.getBinaryString()
 
 
@@ -12810,8 +13010,53 @@ class WalletEntry(object):
       self.wltByteLoc = fileOffset
       return self
 
+   #############################################################################
+   def setLockTimeout(self, newTimeout):
+      self.lockTimeout = newTimeout
+
+   #############################################################################
+   def checkLockTimeout(self):
+      if self.lockTimeout == 0:
+         return 0
+
+      if RightNow() > self.relockAtTime:
+         self.lock()
 
 
+   #############################################################################
+   def lock(self, encryptKey=None, encryptIV=None):
+      """ 
+      It's up to the caller to check beforehand if an encryption key or IV
+      is needed, and how to get it.  Check the self.encryptInfo
+
+      WalletEntry encryption is the "outer" encryption, of the entire WE 
+      object.  If the data itself has encryption (inner encryption, such
+      as for private key data in an ArmoryAddress object), that will not
+      be applied by this method.  
+      """
+
+      if not self.encryptInfo.useEncryption():
+         LOGWARN('Trying to lock unencrypted data...?')
+         return
+
+      # Check for the very simple locking case:
+      if len(self.payloadEncrypt) > 0:
+         if encryptKey==None:
+            # We have encrypted form, and no key spec'd, just destroy plain
+            self.payloadPlain = None
+            return
+         else:
+            # We are relocking with a different encryption key
+            LOGWARN('Specified encryption key with data already encrypted')
+            LOGWARN('Make sure you meant to re-encrypt the WE data this way')
+            plain = self.payloadPlain.serialize()
+            plain = addPadding(plain, self.encryptInfo.getBlockSize())
+            self.encryptInfo.encrypt(plain, encryptKey, encryptIV)
+            self.payloadPlain = None
+            return
+
+           #def EncryptionDef::decrypt(self, ciphertext, keydata, ivdata=None):
+           #def EncryptionDef::encrypt(self, plaintext, keydata, ivdata=None):
 
 
 
@@ -13413,7 +13658,6 @@ class PyBtcWallet(object):
       self.fileTypeStr    = '\xbaWALLET\x00'
       self.magicBytes     = MAGIC_BYTES
       self.version        = PYBTCWALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
-      self.eofByte        = 0
       self.cppWallet      = None   # Mirror of PyBtcWallet in C++ object
       self.cppInfo        = {}     # Extra info about each address to help sync
       self.watchingOnly   = False

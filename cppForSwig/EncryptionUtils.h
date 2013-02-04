@@ -520,7 +520,7 @@ public:
    SecureBinaryData const & getChain(void) const  {return chain_;}
    list<uint32_t>           getIndicesList(void) const { return indicesList_; }
    SecureBinaryData         getFingerprint(void) const;
-   SecureBinaryData const & getParentFingerprint(void) const { return parentFingerprint_;}
+   SecureBinaryData const & getParentHash160(void) const { return parent160_;}
 
    BinaryData               getHash160(void) const;
    uint32_t                 getDepth(void) const  {return indicesList_.size();}
@@ -542,7 +542,7 @@ private:
 
    // Because we can't always rely on parent pointers, we will just 
    list<uint32_t> indicesList_;
-   SecureBinaryData parentFingerprint_;
+   SecureBinaryData parent160_;
 
 
 };

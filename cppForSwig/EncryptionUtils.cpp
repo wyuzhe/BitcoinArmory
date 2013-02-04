@@ -873,16 +873,6 @@ BinaryData CryptoECDSA::ECMultiplyPoint(BinaryData const & scalar,
    
 }
 
-////////////////////////////////////////////////////////////////////////////////
-SecureBinaryData ExtendedKey::getFingerprint(void) const
-{
-   SecureBinaryData hmac = HDWalletCrypto().HMAC_SHA512(
-                        getChain(), CryptoECDSA().UncompressPoint(getPub()));
-
-   
-   return SecureBinaryData(hmac.getPtr(), 4);
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////
 BinaryData ExtendedKey::getHash160(void) const
@@ -923,12 +913,12 @@ vector<uint32_t> ExtendedKey::getIndicesVect(void) const
 ExtendedKey::ExtendedKey(SecureBinaryData const & pr, 
                          SecureBinaryData const & pb, 
                          SecureBinaryData const & ch,
-                         SecureBinaryData const & parfp,
+                         SecureBinaryData const & par160,
                          list<uint32_t> parentTreeIdx) :
    privKey_(pr),
    pubKey_(pb),
    chain_(ch),
-   parentFingerprint_(parfp),
+   parent160_(par160),
    indicesList_(parentTreeIdx)
 {
    assert(privKey_.getSize()==0 || privKey_.getSize()==32);
@@ -940,12 +930,12 @@ ExtendedKey::ExtendedKey(SecureBinaryData const & pr,
 ////////////////////////////////////////////////////////////////////////////////
 ExtendedKey::ExtendedKey(BinaryData const & pub, 
                          BinaryData const & chn,
-                         BinaryData const & parfp,
+                         BinaryData const & par160,
                          list<uint32_t> parentTreeIdx) :
    privKey_(0),
    pubKey_(pub),
    chain_(chn),
-   parentFingerprint_(parfp),
+   parent160_(par160),
    indicesList_(parentTreeIdx)
 {
    assert(pubKey_.getSize()==33 || pubKey_.getSize()==65);
@@ -958,14 +948,14 @@ ExtendedKey::ExtendedKey(BinaryData const & pub,
 ExtendedKey ExtendedKey::CreateFromPrivate( 
                                SecureBinaryData const & priv, 
                                SecureBinaryData const & chain,
-                               SecureBinaryData const & parentFP,
+                               SecureBinaryData const & parent160,
                                list<uint32_t> parentTreeIdx)
 {
    ExtendedKey ek;
    ek.privKey_ = priv.copy();
    ek.pubKey_ = CryptoECDSA().ComputePublicKey(ek.privKey_, true);
    ek.chain_ = chain.copy();
-   ek.parentFingerprint_ = parentFP.copy();
+   ek.parent160_ = parent160.copy();
    ek.indicesList_ = parentTreeIdx;
    return ek;
 }
@@ -976,14 +966,14 @@ ExtendedKey ExtendedKey::CreateFromPrivate(
 ExtendedKey ExtendedKey::CreateFromPublic( 
                               SecureBinaryData const & pub, 
                               SecureBinaryData const & chain,
-                              SecureBinaryData const & parentFP,
+                              SecureBinaryData const & parent160,
                               list<uint32_t> parentTreeIdx)
 {
    ExtendedKey ek;
    ek.privKey_ = SecureBinaryData(0);
    ek.pubKey_ = pub.copy();
    ek.chain_ = chain.copy();
-   ek.parentFingerprint_ = parentFP.copy();
+   ek.parent160_ = parent160.copy();
    ek.indicesList_ = parentTreeIdx;
    return ek;
 }
@@ -1012,7 +1002,7 @@ ExtendedKey ExtendedKey::makePublicCopy(void)
 // that guarantees I'm getting a copy, not a reference
 ExtendedKey ExtendedKey::copy(void) const
 {
-   return ExtendedKey(privKey_, pubKey_, chain_, parentFingerprint_, indicesList_);
+   return ExtendedKey(privKey_, pubKey_, chain_, parent160_, indicesList_);
 }
 
 
@@ -1022,7 +1012,7 @@ void ExtendedKey::debugPrint(void) const
 {
    cout << "Indices:        " << getIndexListString() << endl;
    cout << "Fingerprint:    Self: " << getFingerprint().toHexStr()
-        << " Parent: " << getParentFingerprint().toHexStr() << endl;
+        << " Parent: " << getParentHash160().toHexStr() << endl;
    cout << "Private Key:    " << privKey_.toHexStr() << endl;
    cout << "Public Key:   "   << CryptoECDSA().CompressPoint(pubKey_).toHexStr() << endl;
    cout << "Chain Code:     " << chain_.toHexStr() << endl;
