@@ -1977,6 +1977,10 @@ class ArmoryAddress(object):
       self.isInitialized         = False
       self.walletByteLoc         = -1
 
+      # If it is a root, it is not actually used to receive funds, though it has
+      # all the same properties and operations as a regular BTC address
+      self.isRootAddres          = True  
+
       # We will simply store flag to identify if this address is intended
       # to be used as part of multi-sig ... it's a lot of extra data to
       # store the full multi-sig details, and that should be stored with
@@ -2000,7 +2004,7 @@ class ArmoryAddress(object):
       self.whenLastSeen  = [UNKNOWN_TIME, UNKNOWN_BLOCK]
 
       # Our wallet files may eventually evolve to import other types of wallets
-      # or addresses.  Leave some room to have PyBtcAddress assume other types 
+      # or addresses.  Leave some room to have ArmoryAddress assume other types 
       # of addresses (such as ARMORY_1.35 addresses)
       self.addressSource  = 'ARMORY'.ljust(12, '\x00')
       self.addressVersion = getVersionInt(ARMORY_WALLET_VERSION) 
@@ -12603,13 +12607,22 @@ class ArmoryRoot(object):
       self.highestUsedChainIndex  = 0 
       self.lastSyncBlockNum = 0
 
+      self.hdwChildID = -1
+      self.hdwDepth = -1
+
       self.parentWltRef = None
 
       self.wltVersion = ARMORY_WALLET_VERSION
       self.wltSource  = 'ARMORY'.ljust(12, '\x00')
 
+      # If this 
+      self.walletType = "BIP32"
+      self.bip32seed_crypto  = ArmoryCryptInfo(None)
+      self.bip32seed  = None
+
       # FLAGS
-      self.isPhoneRoot = False  # don't send from unless emergency sweep
+      self.isPhoneRoot = False  # don't send from, unless emergency sweep
+      self.isSiblingRoot = False # observer root of a multi-sig wlt, don't use
 
       """
       self.fileTypeStr    = '\xbaWALLET\x00'
@@ -12680,6 +12693,10 @@ class ArmoryRoot(object):
       self.offsetKdfParams = -1
       self.offsetCrypto    = -1
       """
+
+
+   #############################################################################
+   def CreateNewRoot
 
    #############################################################################
    def advanceHighestIndex(self, ct=1):
@@ -12901,7 +12918,7 @@ class WalletEntry(object):
                    'P2SH': ScriptP2SH,
                    'ZERO': ZeroData, 
                    'RLAT': RootRelationship,
-                   'EKEY': EncryptionKeyObject,
+                   'EKEY': EncryptionKey,
                    'EALG': EncryptionAlgorithm,
                    'KALG': KdfObject,
                    'SIGN': WltEntrySignature }
@@ -13289,10 +13306,14 @@ class ArmoryWalletFile(object):
          LOGERROR('Attempted to open a wallet file that does not exist!')
          raise FileExistsError
 
+
+
+      self.fileHeader = ArmoryFileHeader()
+
       # We will queue updates to the wallet file, and later apply them  
       # atomically to avoid corruption problems
       self.updateQueue   = []
-      self.lastFilesize = os.path.getsize(filepath)
+      self.lastFilesize  = -1
 
       # WalletEntry objects may request an update, but that update is not 
       # applied right away.  This variable will be incremented on every
@@ -13308,15 +13329,40 @@ class ArmoryWalletFile(object):
       # Last synchronized all chains to this block
       self.lastSyncBlockNum = 0
 
-      # All wallet roots (every branch node that isn't used for its addr)
-      self.fileHeader = ArmoryFileHeader()
-      self.rootMap = {}
+      # All wallet roots based on "standard" BIP 32 usage:
+      #    rootMap[0] ~ Will be a single key/chain pair, derived from seed
+      #    rootMap[1] ~ Map of all wallets
+      #    rootMap[2] ~ Only two possible roots for each wallet: {0,1}
+      #                 (external and internal chains)
+      # Maps are indexed by 20-byte ID (the address/hash160 they would have
+      # if they were to be used to receive funds, but they are not in these
+      # maps if they are ever used to receive funds -- all such addresses 
+      # exist at the next level)
+      self.rootMapBIP32 = [{}, {}, {}]
+
+
+      # If there are other roots
+      self.rootMapOther = {}
+
+      # List of all master encryption keys in this wallet (and also the 
+      # data needed to understand how to decrypt them, probably by KDF)
       self.ekeyMap = {}
+
+      # List of all KDF objects -- probably created based on testing the 
+      # system speed when the wallet was created
       self.kdfMap  = {}
 
+      # Master address list of all wallets/roots/chains that could receive BTC
+      self.masterAddrMap  = {}
+
       # If not None, it means that this wallet holds only a subset of data 
-      # in the parent file.  Probably just addr/tx comments
-      self.parentFileRef = None
+      # in the parent file.  Probably just addr/tx comments and P2SH scripts
+      self.masterWalletRef = None
+
+      # Alternatively, if this is a master wallet it may have a supplemental
+      # wallet for storing
+      self.supplementalWltPath = None
+      self.supplementalWltRef = None
 
       # Default encryption settings for "outer" encryption (if we want to
       # encrypt the entire WalletEntry, not just the private keys
@@ -13330,8 +13376,6 @@ class ArmoryWalletFile(object):
       self.isTransferWallet = False
       self.isSupplemental = False
 
-      # We may have supplemental wallet file for holding "protected" data
-      self.supplementalWltPath = None
 
       # These flags are ONLY for unit-testing the atomic file operations
       self.interruptTest1  = False
@@ -13386,7 +13430,7 @@ class ArmoryWalletFile(object):
       return self.ekeyMap.has_key(ekeyID)
 
    #############################################################################
-   def mergeWalletFile(self, filepath, weTypesToMerge=['ALL']):
+   def mergeWalletFile(self, filepath, rootsToAbsorb=['ALL']):
       """
       Just like in git, WltA.mergeWalletFile(WltB) means we want to pull all 
       the keys from WltB into WltA and leave WltB untouched.
@@ -13399,8 +13443,8 @@ class ArmoryWalletFile(object):
       if not os.path.exists(filepath):
          LOGERROR('Wallet to merge does not exist: %s', filepath)
 
-      with open(filepath, 'rb') as f:
-         bu = BinaryUnpacker(f.read())
+
+      wltOther = ArmoryWalletFile.readWalletFile(filepath)
 
       while not bu.isEndOfStream():
          weObj = readWalletEntry(bu)
@@ -13751,6 +13795,8 @@ class ArmoryWalletFile(object):
 
    #############################################################################
    def writeFreshWalletFile(self, path, newName='', newDescr=''):
+
+
 
    #############################################################################
    # TODO: This is still the 1.35 version!  Update it!
