@@ -11708,39 +11708,39 @@ class ArmoryCryptInfo(object):
 
    Master Private Key is also in wallet:
              ArmoryCryptInfo( '11112222aaaabbbb',  \
-                            'ccccdddd88889999',  \
-                            'PASSPHRASEPLEASE' , \
-                            '<IVStoredWithObj>')
+                              'ccccdddd88889999',  \
+                              'PASSPHRASEPLEASE' , \
+                              '<IVStoredWithObj>')
 
    Private key encryption with a master private key:
              ArmoryCryptInfo( '0000000000000000',  \
-                            'ccccdddd88889999',  \
-                            '12345678abcdefab' , \
-                            'PUBLICKEYHASH160')
+                              'ccccdddd88889999',  \
+                              '12345678abcdefab' , \
+                              'PUBLICKEYHASH160')
 
    Private key encryption with just KDF (no master):
              ArmoryCryptInfo( '11112222aaaabbbb',  \
-                            'ccccdddd88889999',  \
-                            'PASSPHRASEPLEASE' , \
-                            'PUBLICKEYHASH160')
+                              'ccccdddd88889999',  \
+                              'PASSPHRASEPLEASE' , \
+                              'PUBLICKEYHASH160')
    
    Encrypt P2SH Scripts and Labels in other file
              ArmoryCryptInfo( '0000000000000000', \
-                            'ccccdddd88889999', \
-                            'PARENTCHAINCODE' , \
-                            'IVSTOREDWITHOBJ')
+                              'ccccdddd88889999', \
+                              'PARENTCHAINCODE' , \
+                              'IVSTOREDWITHOBJ')
 
    Encrypt Public Keys & Addresses as WalletEntries:
              ArmoryCryptInfo( '11112222aaaabbbb',  \
-                            'ccccdddd88889999',  \
-                            'ROOTCHAINCODE256' , \
-                            'IVSTOREDWITHOBJ')
+                              'ccccdddd88889999',  \
+                              'ROOTCHAINCODE256' , \
+                              'IVSTOREDWITHOBJ')
 
    No encryption 
              ArmoryCryptInfo( '0000000000000000', \
-                            '0000000000000000', \
-                            '0000000000000000', \
-                            '0000000000000000')
+                              '0000000000000000', \
+                              '0000000000000000', \
+                              '0000000000000000')
    """
 
 
@@ -11872,6 +11872,9 @@ class ArmoryCryptInfo(object):
       self.ivSource    = bu.get(BINARY_CHUNK, 8)
       return self
        
+   ############################################################################
+   def copy(self):
+      return ArmoryCryptInfo().unserialize(self.serialize())
 
 
    ############################################################################
@@ -11983,6 +11986,9 @@ class ArmoryCryptInfo(object):
       return plain
 
 
+
+
+
 #############################################################################
 class KdfObject(object):
    """
@@ -12073,7 +12079,7 @@ class KdfObject(object):
       
    ############################################################################
    # STATIC METHOD (no self)
-   def registerKDF(kdfObj):
+   def RegisterKDF(kdfObj):
       LOGINFO('Registering KDF object: %s', binary_to_hex(kdfObj.getKdfID())
       self.REGISTERED_KDFS[kdfObj.getKdfID()] = kdfObj
 
@@ -12129,7 +12135,8 @@ class KdfObject(object):
 
 
    #############################################################################
-   def createNewKDF(self, kdfName, targSec=0.25, maxMem=32*1024*1024):
+   def createNewKDF(self, kdfName, targSec=0.25, maxMem=32*1024*1024, \
+                                                           doRegisterKDF=True):
       
       LOGINFO("Creating new KDF object")
 
@@ -12148,7 +12155,6 @@ class KdfObject(object):
       if kdfName.lower()=='identity':
          self.__init__('Identity')
          LOGINFO('Created identity identity KDF')
-         return self
       elif kdfName.lower()=='romixov2':
          kdf = KdfRomix()
          kdf.computeKdfParams(targetSec, maxMem)
@@ -12163,7 +12169,11 @@ class KdfObject(object):
          LOGINFO('\t%d kB',  (int(mem)/1024))
          LOGINFO('\t%d iterations', nIter)
          LOGINFO('\tSalt: %s', self.kdf.getSalt().toHexStr())
-         return self
+
+      if doRegisterKDF:
+         KdfObject().RegisterKDF(self)
+
+      return self
 
 
 
@@ -12196,12 +12206,25 @@ class EncryptionKey(object):
 
 
    #############################################################################
-   def EncryptionKeyToID(rawkey):
+   def EncryptionKeyToID(self, rawkey, ekeyalgo):
+      # A static method that computes an 8-byte ID for any raw string
       # Essentially a hash of the 32-byte key and its type (i.e. 'AE256CFB')
       rawkey = SecureBinaryData(rawkey)
-      hmac = HDWalletCrypto().HMAC_SHA512(rawkey, self.ekeyType)
+      hmac = HDWalletCrypto().HMAC_SHA512(rawkey, ekeyalgo)
       rawkey.destroy()
       return hmac.toBinStr()[:8]
+
+   
+   #############################################################################
+   def getEncryptionKeyID(self):
+      if self.ekeyID==None:
+         # Needs to be computed
+         if self.isLocked():
+            LOGERROR('No stored ekey ID, and ekey is locked so cannot compute')
+            raise EncryptionError
+         self.ekeyID = EncryptionKey().EncryptionKeyToID(self.masterKeyPlain, \
+                                                         self.ekeyType)
+      return self.ekeyID
 
    #############################################################################
    def verifyPassphrase(self, passphrase):
@@ -12292,7 +12315,7 @@ class EncryptionKey(object):
 
 
    #############################################################################
-   def createNewMasterKey(self, encryptKeyKDF, encryptKeyAlgo, passphrase, \
+   def CreateNewMasterKey(self, encryptKeyKDF, encryptKeyAlgo, passphrase, \
                                                          withTestString=True, \
                                                          masterKeyType=None):
       """
@@ -12302,7 +12325,8 @@ class EncryptionKey(object):
       using this method.
 
       Generally, ArmoryCryptInfo objects can have a null KDF, but not for 
-      master encryption key objects 
+      master encryption key objects (though just about anything is possible
+      with the ArmoryCryptInfo types)
       """
 
       LOGINFO('Generating new master key')
@@ -12348,12 +12372,14 @@ class EncryptionKey(object):
          
       # Master encryption keys will always be stored with IV
       storedIV = SecureBinaryData().GenerateRandom(8)
-      self.encryptInfo = ArmoryCryptInfo(kdfID, encryptKeyAlgo, 'PASSWORD', storedIV)
+      self.encryptInfo = ArmoryCryptInfo(kdfID, encryptKeyAlgo, \
+                                         'PASSWORD', storedIV)
 
       # Create the master key...
       self.masterKeyPlain = SecureBinaryData().GenerateRandom(32)
       self.ekeyID = self.EncryptionKeyToID(self.masterKeyPlain)
-      self.masterKeyEncrypted = self.encryptInfo.encrypt(self.masterKeyPlain,  passphrase)
+      self.masterKeyEncrypted = self.encryptInfo.encrypt(self.masterKeyPlain, \
+                                                         passphrase)
 
       if not withTestString:
          self.testStringPlain = '\x00'*32
@@ -12361,7 +12387,7 @@ class EncryptionKey(object):
       else:
          rand16 = SecureBinaryData().GenerateRandom(16)
          self.testStringPlain = SecureBinaryData('ARMORYENCRYPTION') + rand16
-         testStrIV = self.ekeyID*2  # 
+         testStrIV = self.ekeyID*2  
          if encryptKeyAlgo=='AE256CBC': 
             self.testStringEncr = CryptoAES().EncryptCBC(self.testStringPlain, \
                                                          self.masterKeyPlain, \
@@ -12596,7 +12622,7 @@ class ArmoryRoot(object):
       self.chainIndexMap = {}
       self.p2shMap       = {}  # maps raw P2SH scripts to full scripts.
 
-      self.relationship   = RootRelationship(None)
+      self.relationship      = RootRelationship(None)
       self.privKeyEncryptDef = ArmoryCryptInfo(None)
       self.outerEncryptDef   = ArmoryCryptInfo(None)
 
@@ -12615,7 +12641,9 @@ class ArmoryRoot(object):
       self.wltVersion = ARMORY_WALLET_VERSION
       self.wltSource  = 'ARMORY'.ljust(12, '\x00')
 
-      # If this 
+      # If this is a "normal" wallet, it is BIP32.  Other types of wallets 
+      # (perhaps old Armory chains, will use different name to identify we
+      # may do something different)
       self.walletType = "BIP32"
       self.bip32seed_crypto  = ArmoryCryptInfo(None)
       self.bip32seed  = None
@@ -12623,6 +12651,18 @@ class ArmoryRoot(object):
       # FLAGS
       self.isPhoneRoot = False  # don't send from, unless emergency sweep
       self.isSiblingRoot = False # observer root of a multi-sig wlt, don't use
+
+      # In the event that some data type identifies this root as its parent AND
+      # it identifies itself as critical AND we don't recognize it (such as if
+      # you use a colored-coin variant of Armory and then later import the wlt
+      # using vanilla Armory), this wallet should be identified as available 
+      # but unusable/disabled, to avoid doing something you shouldn't
+      self.isDisabled = False
+
+      # If the user decided to "remove" this wallet, then we simply mark it as
+      # "removed" and don't display it or do anything with it.
+      self.userRemoved = False
+
 
       """
       self.fileTypeStr    = '\xbaWALLET\x00'
@@ -12696,7 +12736,7 @@ class ArmoryRoot(object):
 
 
    #############################################################################
-   def CreateNewRoot
+   def CreateNewRoot(self, 
 
    #############################################################################
    def advanceHighestIndex(self, ct=1):
@@ -12919,8 +12959,8 @@ class WalletEntry(object):
                    'ZERO': ZeroData, 
                    'RLAT': RootRelationship,
                    'EKEY': EncryptionKey,
-                   'EALG': EncryptionAlgorithm,
-                   'KALG': KdfObject,
+                   'CRYP': ArmoryCryptInfo,
+                   'KDFO': KdfObject,
                    'SIGN': WltEntrySignature }
 
    REQUIRED_TYPES = ['ADDR', 'ROOT', 'RLAT']
@@ -13300,13 +13340,11 @@ class WalletEntry(object):
 ################################################################################
 class ArmoryWalletFile(object):
 
-   def __init__(self, filepath, createNew=False):
+   def __init__(self):
 
       if not os.path.exists(filepath) and not createNew:
          LOGERROR('Attempted to open a wallet file that does not exist!')
          raise FileExistsError
-
-
 
       self.fileHeader = ArmoryFileHeader()
 
@@ -13330,18 +13368,20 @@ class ArmoryWalletFile(object):
       self.lastSyncBlockNum = 0
 
       # All wallet roots based on "standard" BIP 32 usage:
-      #    rootMap[0] ~ Will be a single key/chain pair, derived from seed
-      #    rootMap[1] ~ Map of all wallets
-      #    rootMap[2] ~ Only two possible roots for each wallet: {0,1}
-      #                 (external and internal chains)
+      #    rootMap[0] ~ Map of all zeroth-order roots, derived from seeds
+      #    rootMap[1] ~ Map of all wallets for all base roots
+      #    rootMap[2] ~ Map of internal/external chains of all wallets.
       # Maps are indexed by 20-byte ID (the address/hash160 they would have
       # if they were to be used to receive funds, but they are not in these
       # maps if they are ever used to receive funds -- all such addresses 
       # exist at the next level)
       self.rootMapBIP32 = [{}, {}, {}]
 
-
-      # If there are other roots
+      # If there are other roots (such as old Armory wallets, or JBOK wlts,
+      # etc) we will need to track them using other roots.  In the case of
+      # old Armory wallets, the original index=-1 address will be included
+      # in this map.  For importing old Bitcoin-Qt wallets, we will create 
+      # a root with a random ID to hold "just a bunch of keys" (JBOK).
       self.rootMapOther = {}
 
       # List of all master encryption keys in this wallet (and also the 
@@ -13355,7 +13395,7 @@ class ArmoryWalletFile(object):
       # Master address list of all wallets/roots/chains that could receive BTC
       self.masterAddrMap  = {}
 
-      # If not None, it means that this wallet holds only a subset of data 
+      # If != None, it means that this wallet holds only a subset of data 
       # in the parent file.  Probably just addr/tx comments and P2SH scripts
       self.masterWalletRef = None
 
@@ -13381,6 +13421,7 @@ class ArmoryWalletFile(object):
       self.interruptTest1  = False
       self.interruptTest2  = False
       self.interruptTest3  = False
+
 
 
 
@@ -13419,7 +13460,17 @@ class ArmoryWalletFile(object):
 
          self.kdfMap[newKdfID] = newKDF
          ArmoryCryptInfo.registerKDF(newKDF)
+
+
+   
          
+   #############################################################################
+   def findAllEntriesUsingObject(self, objID):
+      """
+      Use this to identify whether certain objects, such as KDF objects, are 
+      no longer being used and can be removed (or for some other reason)
+      """
+      raise NotImplementedError
 
    #############################################################################
    def hasKDF(self, kdfID):
@@ -13430,26 +13481,55 @@ class ArmoryWalletFile(object):
       return self.ekeyMap.has_key(ekeyID)
 
    #############################################################################
-   def mergeWalletFile(self, filepath, rootsToAbsorb=['ALL']):
+   def mergeWalletFile(self, wltOther, rootsToAbsorb='ALL'):
       """
       Just like in git, WltA.mergeWalletFile(WltB) means we want to pull all 
       the keys from WltB into WltA and leave WltB untouched.
-
-      We can use the weTypesToMerge to specify only a subset of wallet entries
-      to merge.  Like: ['P2SH','EKEY'] will only move P2SH scripts and 
-      encryption keys entries over.  All other entry types will not be merged.
       """
-      # Open wallet file
-      if not os.path.exists(filepath):
-         LOGERROR('Wallet to merge does not exist: %s', filepath)
+
+      if isinstance(wltOther, basestring):
+         # Open wallet file
+         if not os.path.exists(wltOther):
+            LOGERROR('Wallet to merge does not exist: %s', filepath)
+            raise WalletExistsError
+         wltOther = ArmoryWalletFile.readWalletFile(filepath)
 
 
-      wltOther = ArmoryWalletFile.readWalletFile(filepath)
+      rootRefList = []
 
-      while not bu.isEndOfStream():
-         weObj = readWalletEntry(bu)
-         if weTypesToMerge[0].lower()=='all' or weObj.entryCode in weTypesToMerge:
-            self.addFileOperationToQueue('Append', weObj)
+      #
+      for level in range(3):
+         rootMap = wltOther.rootMap[level]
+         for rootID,root in rootMap.iteritems():
+            if rootsToAbsorb=='ALL' or rootID in rootsToAbsorb:
+               rootRefList.append(rootID, root)
+
+
+
+      # We need to not only copy over all addr and sub-roots, but
+      # also all KDF objects and any other things in the file that ref
+      # this root/addr (also any relationship objects and any roots
+      # related to that, as well)
+      i = 0
+      procRootAlready = set([])
+      while i<len(rootRefList):
+         rootID,root = rootRefList[i]
+         if rootID in procRootAlready:
+            continue
+
+         procRootAlready.add(rootID)
+
+         
+         addFileOperationToQueue
+
+         if root.relationship.isMultiSig:
+            # Make sure to merge the sibling wallets, too
+            for sib in root.relationship.siblingList:
+               if not sib.rootID in rootRefList:
+                  LOGINFO('Adding sibling to root-merge list')
+               rootRefList.add(sib.rootID)
+
+
 
 
    #############################################################################
@@ -13492,7 +13572,8 @@ class ArmoryWalletFile(object):
 
    #############################################################################
    def readWalletEntry(self, toUnpack):
-      return WalletEntry().unserialize(toUnpack)
+      we = WalletEntry().unserialize(toUnpack)
+
 
          
         
@@ -13539,6 +13620,8 @@ class ArmoryWalletFile(object):
          if not isWltEntryObj:
             LOGERROR('Must supply WalletEntry object to use "addEntry" cmd')
             raise BadInputError
+         if data already in wallet:
+            skip
          newData = theData.serialize()
          operationType = 'Append'
       elif operationType.lower()=='updateentry':
@@ -13785,7 +13868,18 @@ class ArmoryWalletFile(object):
 
 
    #############################################################################
-   def createNewRoot(self, typeStr, withEncrypt,):
+   def createAndAddNewMasterSeed(self, withEncryption=True, \
+                                         nonDefaultEncrInfo=None):
+      if withEncryption and self.isLocked():
+         LOGERROR('Trying to add new encrypted root to wallet while locked')
+         raise EncryptionError
+
+      
+
+      
+   #############################################################################
+   def addPregeneratedMasterSeed(self, 
+
 
    #############################################################################
    def createNewLinkedWallet(self, typeStr, withEncrypt,):
@@ -13799,8 +13893,16 @@ class ArmoryWalletFile(object):
 
 
    #############################################################################
-   # TODO: This is still the 1.35 version!  Update it!
-   def createNewWalletFile(self, 
+   # 
+   def CreateNewWalletFile(self, 
+                           createNewRoot=True, \
+                           securePassphrase=None, \
+                           kdfTargSec=DEFAULT_COMPUTE_TIME_TARGET, \
+                           kdfMaxMem=DEFAULT_MAXMEM_LIMIT, \
+                           defaultInnerEncrypt=None, \
+                           defaultOuterEncrypt=None, \
+                           doRegisterWithBDM=True, \
+                           ):
                              #newWalletFilePath=None, \
                              #plainRootKey=None, \
                              ##withEncrypt=True, securePassphrase=None, \
@@ -13808,26 +13910,8 @@ class ArmoryWalletFile(object):
                              #kdfMaxMem=DEFAULT_MAXMEM_LIMIT, \
                              #shortLabel='', longLabel='', isActuallyNew=True, \
                              #doRegisterWithBDM=True):
-      kjflkds                       
+      raise NotImplementedError
       """
-      This method will create a new wallet, using as much customizability
-      as you want.  You can enable encryption, and set the target params
-      of the key-derivation function (compute-time and max memory usage).
-      The KDF parameters will be experimentally determined to be as hard
-      as possible for your computer within the specified time target
-      (default, 0.25s).  It will aim for maximizing memory usage and using
-      only 1 or 2 iterations of it, but this can be changed by scaling
-      down the kdfMaxMem parameter (default 32 MB).
-
-      If you use encryption, don't forget to supply a 32-byte passphrase,
-      created via SecureBinaryData(pythonStr).  This method will apply
-      the passphrase so that the wallet is "born" encrypted.
-
-      The field plainRootKey could be used to recover a written backup
-      of a wallet, since all addresses are deterministically computed
-      from the root address.  This obviously won't reocver any imported
-      keys, but does mean that you can recover your ENTIRE WALLET from
-      only those 32 plaintext bytes AND the 32-byte chaincode.
 
       We skip the atomic file operations since we don't even have
       a wallet file yet to safely update.
@@ -13841,37 +13925,32 @@ class ArmoryWalletFile(object):
          LOGERROR('Don\'t do this!')
          return None
 
-      if securePassphrase:
-         securePassphrase = SecureBinaryData(securePassphrase)
-      if plainRootKey:
-         plainRootKey = SecureBinaryData(plainRootKey)
-      if chaincode:
-         chaincode = SecureBinaryData(chaincode)
-
-      if withEncrypt and not securePassphrase:
-         raise EncryptionError, 'Cannot create encrypted wallet without passphrase'
-
       LOGINFO('***Creating new deterministic wallet')
 
-      # Set up the KDF
-      if not withEncrypt:
-         self.kdfKey = None
-      else:
-         LOGINFO('(with encryption)')
-         self.kdf = KdfRomix()
-         LOGINFO('Target (time,RAM)=(%0.3f,%d)', kdfTargSec, kdfMaxMem)
-         (mem,niter,salt) = self.computeSystemSpecificKdfParams( \
-                                                kdfTargSec, kdfMaxMem)
-         self.kdf.usePrecomputedKdfParams(mem, niter, salt)
-         self.kdfKey = self.kdf.DeriveKey(securePassphrase)
+      #####
+      # Create a new KDF -- we need one for just about every wallet, regardless
+      # of whether we are using encryption (yet).  The new KDF will be stored
+      # with the wallet, and used by default whenever we want to encrypt 
+      # something
+      newKDF = KdfObject().createNewKDF('ROMixOv2', kdfTargSec, kdfMaxMem)
+      self.kdfMap[newKDF.getKdfID()] = newKDF
 
-      if not plainRootKey:
-         # TODO: We should find a source for injecting extra entropy
-         #       At least, Crypto++ grabs from a few different sources, itself
-         plainRootKey = SecureBinaryData().GenerateRandom(32)
+      #####
+      # If a secure passphrase was supplied, create a new master encryption key
+      if not securePassphrase==None:
+         securePassphrase = SecureBinaryData(securePassphrase)
+         newEKey = EncryptionKey().CreateNewMasterKey(newKDF, \
+                                                   'AE256CFB', \
+                                                   securePassphrase)
+         self.ekeyMap[newEKey.getEncryptionKeyID()] = newEKey
 
-      if not chaincode:
-         chaincode = SecureBinaryData().GenerateRandom(32)
+      #####
+      # If requested (usually is), create new master root, and create a wallet
+      if createNewRoot:
+         newRoot = ArmoryRoot().createNewRoot
+      
+
+
 
       # Create the root address object
       rootAddr = PyBtcAddress().createFromPlainKeyData( \
@@ -13962,6 +14041,11 @@ class ArmoryWalletFile(object):
 
       if self.useEncryption:
          self.lock()
+
+
+
+      SERIALIZEEVERYTHINGINTO THE FILE
+      self.writeFreshWalletFile(filepath)
       return self
 
 
