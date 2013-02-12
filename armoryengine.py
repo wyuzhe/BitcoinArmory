@@ -11675,6 +11675,8 @@ def SaveTimingsCSV(fname):
 CRYPT_KEY_SRC = enum('PASSWD', 'PARENT', 'OBJECT')
 CRYPT_IV_SRC  = enum('STORED', 'PUBKEY')
 NULLSTR8 = '\x00'*8
+KNOWN_CRYPTO = {'AE256CFB': {'blocksize': 16}, \
+                'AE256CBC': {'blocksize': 16} }
 
 ################################################################################
 ################################################################################
@@ -11745,7 +11747,6 @@ class ArmoryCryptInfo(object):
 
 
 
-   KNOWN_CRYPTO = ['AE256CFB', 'AE256CBC']
 
    ############################################################################
    def __init__(self, kdfAlgo=NULLSTR8, \
@@ -11762,7 +11763,7 @@ class ArmoryCryptInfo(object):
          raise UnrecognizedCrypto
 
       # Now perform the encryption using the encryption key
-      if not (encrAlgo==NULLSTR8) and (not encrAlgo in self.KNOWN_CRYPTO):
+      if not (encrAlgo==NULLSTR8) and (not encrAlgo in KNOWN_CRYPTO):
          LOGERROR('Unrecognized encryption algorithm: %s', encrAlgo)
          raise UnrecognizedCrypto
 
@@ -11783,6 +11784,10 @@ class ArmoryCryptInfo(object):
    ############################################################################
    def useKeyDerivFunc(self):
       return (not self.kdf==NULLSTR8)
+
+   ############################################################################
+   def copy(self):
+      return ArmoryCryptInfo().unserialize(self.serialize())
 
    ############################################################################
    def hasStoredIV(self):
@@ -11824,10 +11829,10 @@ class ArmoryCryptInfo(object):
 
    ############################################################################
    def getBlockSize(self):
-      if(self.encryptAlgo.startswith('AE256'):
-         return 16
+      if not KNOWN_CRYPTO.has_key(self.encryptAlgo):
+         raise EncryptionError, 'Unknown crypto blocksize: %s' % self.encryptAlgo
       else:
-         raise EncryptionError, 'Unknown encryption blocksize'
+         return KNOWN_CRYPTO[self.encryptAlgo]['blocksize']
 
 
    ############################################################################
@@ -11876,9 +11881,8 @@ class ArmoryCryptInfo(object):
    def copy(self):
       return ArmoryCryptInfo().unserialize(self.serialize())
 
-
    ############################################################################
-   def encrypt(self, plaintext, keydata, ivdata=None):
+   def encrypt(self, plaintext, ekeyObj=None, keyData=None, ivData=None):
       """
       Here, "keydata" may actually be a passphrase entered by the user, which 
       will get stretched into the actual encryption key.  If there is no KDF,
@@ -11886,60 +11890,97 @@ class ArmoryCryptInfo(object):
       while likely checked the keySource and ivSource and fetched appropriate 
       data for encryption/decryption.
 
+      If ekeyObj is supplied, then we are saying that the given ekey is 
+      required for encryption/decryption and the keydata is likely to be
+      the passphrase to unlock the ekey.  Therefore, we are allowing one
+      level of recursion... by calling the unlock function on the ekeyObj,
+      which will call the decrypt method on its ArmoryCryptInfo object.
+
+      In the case that ekeyObj is supplied, it is assumed it is the IV for
+      *this data*, not for the ekeyObj -- because ekey objects usually carry 
+      their own IV with them.  If you are doing something much more general 
+      or non-standard, this method may have to be adjusted to accommodate 
+      more complicated schemes.
+
       """
 
+      # If we are using a master encryption key, then we create a modified
+      # copy of self, using the unlocked ekey as the key data.  Use the copy
+      # throughout the rest of the method.
+      einfo = self.copy()
+      if not ekeyObj==None:
+         if not ekeyObj.getEncryptionKeyID() == self.keySource:
+            LOGERROR('Supplied ekeyObj does not match keySource, in encrypt')
+            raise EncryptionError
 
-      # Make sure all the data is in SBD form -- will also be easier to destroy
-      plaintext = SecureBinaryData(plaintext)
-      keydata   = SecureBinaryData(keydata)
+         if ekeyObj.isLocked():         
+            if keyData==None:
+               LOGERROR('Supplied locked ekeyObj without passphrase')
+               raise EncryptionError
 
+            if not ekeyObj.unlock(keyData):
+               LOGERROR('Supplied locked ekeyObj incorrect passphrase')
+               raise EncryptionError
+
+         keyData = ekeyObj.masterKeyPlain.copy()
+         einfo.encryptAlgo = ekeyObj.ekeyType
+
+         
+
+      # If we were given an ekey object and we got here, it is unlocked
 
       # We need to fail if plaintext is not padded to the blocksize of the
       # cipher.  The reason is that this function should only pass out encrypted
       # data that exactly corresponds to the input, not some variant of it.  
-      # If the data needs to be padded, the calling method can ask this EncrDef
+      # If the data needs padding, the calling method can ask the CryptInfo
       # object for the cipher blocksize, and pad it before passing in (and also
       # take note somewhere of what the original datasize was).
-      if not (plaintext.getSize() % self.getBlockSize() == 0):
-         raise EncryptionError, 'Unpadded input (use %d)' % self.getBlockSize()
+      plaintext = SecureBinaryData(plaintext)
+      if not (plaintext.getSize() % einfo.getBlockSize() == 0):
+         LOGERROR('Ciphertext has wrong length: %d bytes', plaintext.getSize())
+         LOGERROR('Length expected to be padded to %d bytes', einfo.getBlockSize())
+         raise EncryptionError, 'Cannot encrypt non-multiple of blocksize'
 
       # IV data might actually be part of this object, not supplied
-      if not self.hasStoredIV():
-         if not ivdata:
+      if not einfo.hasStoredIV():
+         if not ivData:
             LOGERROR('Cannot encrypt without initialization vector.')
             return
-         ivdata = SecureBinaryData(ivdata)
+         ivData = SecureBinaryData(ivData)
+      elif not ivData:
+         ivData = einfo.ivSource.copy()
       else:
-         if ivdata:
-            LOGWARN('ArmoryCryptInfo obj has stored IV and was supplied one!')
-            LOGWARN('Using the stored IV...')
-         ivdata = self.getEncryptIVSrc()[1]
+         LOGERROR('ArmoryCryptInfo has stored IV and was also supplied one!')
+         LOGERROR('Do not want to risk encrypting with wrong IV ... bailing')
+         raise EncryptionError 
 
 
       # Apply KDf if it's requested
-      if self.useKeyDerivFunc(): 
-         if not KdfObject.kdfIsRegistered(self.kdfObjID):
-            LOGERROR('KDF is not registered: %s', binary_to_hex(self.kdfObjID))
+      if einfo.useKeyDerivFunc(): 
+         if not KdfObject.kdfIsRegistered(einfo.kdfObjID):
+            LOGERROR('KDF is not registered: %s', binary_to_hex(einfo.kdfObjID))
             cipher = SecureBinaryData(0)
-         keydata = KdfObject.REGISTERED_KDFS[self.kdfObjID].execKDF(keydata)
+         keyData = KdfObject.REGISTERED_KDFS[einfo.kdfObjID].execKDF(keyData)
 
       # Now perform the encryption using the encryption key
-      if self.encryptAlgo=='AE256CFB':
-         cipher = CryptoAES().EncryptCFB(plaintext, keydata, ivdata)
-      elif self.encryptAlgo=='AE256CBC':
-         cipher = CryptoAES().EncryptCBC(plaintext, keydata, ivdata)
+      if einfo.encryptAlgo=='AE256CFB':
+         cipher = CryptoAES().EncryptCFB(plaintext, keyData, ivData)
+      elif einfo.encryptAlgo=='AE256CBC':
+         cipher = CryptoAES().EncryptCBC(plaintext, keyData, ivData)
       else:
-         LOGERROR('Unrecognized encryption algorithm: %s', self.encryptAlgo)
+         LOGERROR('Unrecognized encryption algorithm: %s', einfo.encryptAlgo)
          cipher = SecureBinaryData(0)
          
       plaintext.destroy()
-      keydata.destroy()
-      ivdata.destroy()
+      keyData.destroy()
+      ivData.destroy()
+      if ekeyObj:
+         ekeyObj.lock()
       return cipher
 
 
    ############################################################################
-   def decrypt(self, ciphertext, keydata, ivdata=None):
+   def decrypt(self, ciphertext, ekeyObj=None, keyData=None, ivData=None):
       """
       Here, "keydata" may actually be a passphrase entered by the user, which 
       will get stretched into the actual encryption key.  If there is no KDF,
@@ -11948,41 +11989,63 @@ class ArmoryCryptInfo(object):
       data for encryption/decryption.
       """
 
+      einfo = self.copy()
+      if not ekeyObj==None:
+         if not ekeyObj.getEncryptionKeyID() == self.keySource:
+            LOGERROR('Supplied ekeyObj does not match keySource, in encrypt')
+            raise EncryptionError
+
+         if ekeyObj.isLocked():         
+            if keyData==None:
+               LOGERROR('Supplied locked ekeyObj without passphrase')
+               raise EncryptionError
+            if not ekeyObj.unlock(keyData):
+               LOGERROR('Supplied locked ekeyObj incorrect passphrase')
+               raise EncryptionError
+
+         keyData = ekeyObj.masterKeyPlain.copy()
+         einfo.encryptAlgo = ekeyObj.ekeyType
+
+
       # Make sure all the data is in SBD form -- will also be easier to destroy
       ciphertext = SecureBinaryData(ciphertext)
-      keydata    = SecureBinaryData(keydata)
+      if not (ciphertext.getSize() % einfo.getBlockSize() == 0):
+         LOGERROR('Ciphertext has wrong length: %d bytes', ciphertext.getSize())
+         LOGERROR('Length expected to be padded to %d bytes', einfo.getBlockSize())
+         raise EncryptionError, 'Cannot decrypt non-multiple of blocksize'
 
       # IV data might actually be part of this object, not supplied
       if not self.hasStoredIV():
-         if not ivdata:
-            LOGERROR('Cannot encrypt without initialization vector.')
+         if not ivData:
+            LOGERROR('Cannot decrypt without initialization vector.')
             return
-         ivdata = SecureBinaryData(ivdata)
+         ivData = SecureBinaryData(ivData)
+      elif not ivData:
+         ivData = einfo.ivSource.copy()
       else:
-         if ivdata:
-            LOGWARN('ArmoryCryptInfo obj has stored IV and was supplied one!')
-            LOGWARN('Using the stored IV...')
-         ivdata = self.getEncryptIVSrc()[1]
+         LOGERROR('ArmoryCryptInfo has stored IV and was also supplied one!')
+         LOGERROR('Using stored IV to attempt to decrypt')
+         # Don't need to bail
 
       # Apply KDf if it's requested
       if self.useKeyDerivFunc(): 
          if not self.kdfObjID in KdfObject.REGISTERED_KDFS:
             LOGERROR('KDF is not registered: %s', binary_to_hex(self.kdfObjID))
             plain = SecureBinaryData(0)
-         keydata = REGISTERED_KDFS[self.kdfObjID].execKDF(keydata)
+         keyData = REGISTERED_KDFS[self.kdfObjID].execKDF(keyData)
 
       # Now perform the decryption using the key
       if self.encryptAlgo=='AE256CFB':
-         plain = CryptoAES().DecryptCFB(ciphertext, keydata, ivdata)
+         plain = CryptoAES().DecryptCFB(ciphertext, keyData, ivData)
       elif self.encryptAlgo=='AE256CBC':
-         plain = CryptoAES().DecryptCBC(ciphertext, keydata, ivdata)
+         plain = CryptoAES().DecryptCBC(ciphertext, keyData, ivData)
       else:
          LOGERROR('Unrecognized encryption algorithm: %s', self.encryptAlgo)
          plain = SecureBinaryData(0)
          
       ciphertext.destroy()
-      keydata.destroy()
-      ivdata.destroy()
+      keyData.destroy()
+      ivData.destroy()
       return plain
 
 
@@ -12214,6 +12277,13 @@ class EncryptionKey(object):
       rawkey.destroy()
       return hmac.toBinStr()[:8]
 
+
+   ############################################################################
+   def getBlockSize(self):
+      if not KNOWN_CRYPTO.has_key(self.ekeyType):
+         raise EncryptionError, 'Unknown crypto blocksize: %s' % self.ekeyType
+      else:
+         return KNOWN_CRYPTO[self.ekeyType]['blocksize']
    
    #############################################################################
    def getEncryptionKeyID(self):
@@ -12257,17 +12327,20 @@ class EncryptionKey(object):
    #############################################################################
    def lock(self, passphrase=None):
       LOGDEBUG('Locking encryption key %s', self.ekeyID)
-      if self.masterKeyEncrypted.getSize()==0:
-         if passphrase==None:
-            LOGERROR('No encrypted master key available and no passphrase for lock()')
-            LOGERROR('Deleting it anyway.')
-         else:
-            passphrase = SecureBinaryData(passphrase)
-            self.masterKeyEncrypted = \
-                     self.encryptInfo.encrypt(self.masterKeyPlain, passphrase)
-            passphrase.destroy()
-
-      self.masterKeyPlain.destroy()
+      try:
+         if self.masterKeyEncrypted.getSize()==0:
+            if passphrase==None:
+               LOGERROR('No encrypted master key available and no passphrase for lock()')
+               LOGERROR('Deleting it anyway.')
+               return False
+            else:
+               passphrase = SecureBinaryData(passphrase)
+               self.masterKeyEncrypted = \
+                        self.encryptInfo.encrypt(self.masterKeyPlain, passphrase)
+               passphrase.destroy()
+               return True
+      finally:
+         self.masterKeyPlain.destroy()
 
 
    #############################################################################
@@ -12354,7 +12427,7 @@ class EncryptionKey(object):
 
       # Check that we recognize the encryption algorithm
       # This is the algorithm used to encrypt the master key itself
-      if not encryptKeyAlgo in ArmoryCryptInfo.KNOWN_CRYPTO:
+      if not encryptKeyAlgo in KNOWN_CRYPTO:
          LOGERROR('Unrecognized crypto algorithm: %s', encryptKeyAlgo)
          raise UnrecognizedCrypto
 
@@ -12365,7 +12438,7 @@ class EncryptionKey(object):
       if masterKeyType==None:
          self.ekeyType = encryptKeyAlgo
       else:
-         if not masterKeyType in ArmoryCryptInfo.KNOWN_CRYPTO:
+         if not masterKeyType in KNOWN_CRYPTO:
             LOGERROR('Unrecognized crypto algorithm: %s', masterKeyType)
             raise UnrecognizedCrypto
          self.ekeyType = masterKeyType
@@ -12606,6 +12679,15 @@ class RootRelationship(object):
       return self.relID
       
 
+#############################################################################
+# Pass in a random binary string, pass out True/False whether it meets
+# the criteria for being an acceptable seed
+def SipaStretchFunc(theStr, **kwargs):
+   """
+   For the first round of testing new wallets, we accept any seed
+   """
+   LOGERROR('Sipa Stretch Function not implemented.  Always return True')
+   return True
 
 #############################################################################
 #############################################################################
@@ -12622,9 +12704,9 @@ class ArmoryRoot(object):
       self.chainIndexMap = {}
       self.p2shMap       = {}  # maps raw P2SH scripts to full scripts.
 
-      self.relationship      = RootRelationship(None)
-      self.privKeyEncryptDef = ArmoryCryptInfo(None)
-      self.outerEncryptDef   = ArmoryCryptInfo(None)
+      self.relationship    = RootRelationship(None)
+      self.privCryptInfo   = ArmoryCryptInfo(None)
+      self.outerCryptInfo  = ArmoryCryptInfo(None)
 
       self.uniqueIDBin = ''
       self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
@@ -12645,7 +12727,6 @@ class ArmoryRoot(object):
       # (perhaps old Armory chains, will use different name to identify we
       # may do something different)
       self.walletType = "BIP32"
-      self.bip32seed_crypto  = ArmoryCryptInfo(None)
       self.bip32seed  = None
 
       # FLAGS
@@ -12655,7 +12736,7 @@ class ArmoryRoot(object):
       # In the event that some data type identifies this root as its parent AND
       # it identifies itself as critical AND we don't recognize it (such as if
       # you use a colored-coin variant of Armory and then later import the wlt
-      # using vanilla Armory), this wallet should be identified as available 
+      # using vanilla Armory), this wallet should be identified as existent 
       # but unusable/disabled, to avoid doing something you shouldn't
       self.isDisabled = False
 
@@ -12736,7 +12817,62 @@ class ArmoryRoot(object):
 
 
    #############################################################################
-   def CreateNewRoot(self, 
+   def CreateNewMasterRoot(self, typeStr='BIP32', cryptInfo=None, \
+                                 ekeyObj=None, keyData=None, ivData=None):
+      """
+      The last few arguments identify how we plan to encrypt the seed and 
+      master node information.  We plan to write this stuff to file right
+      away, so we want to be able to encrypt it right away.  The cryptInfo
+      object tells us how to encrypt it, and the ekeyObj, key and ivData
+      objects are what is needed to encrypt the new seed and root immediately
+      """
+
+
+      if not typeStr=='BIP32':
+         LOGERROR('Cannot create any roots other than BIP32 (yet)')
+         raise NotImplementedError
+
+      self.walletType = typeStr
+      self.wltVersion = ARMORY_WALLET_VERSION
+      self.wltSource  = 'ARMORY'.ljust(12, '\x00')
+
+      # Uses Crypto++ PRNG -- which is suitable for cryptographic purposes
+      # 16 bytes would probably be enough, but I add 4 extra for some margin
+      # Keep generating them until
+      LOGINFO('Searching for acceptable BIP32 seed...')
+      self.bip32seed  = SecureBinaryData().GenerateRandom(20)
+      while not SipaStretchFunc(self.bip32seed, n=12):
+         self.bip32seed = SecureBinaryData().GenerateRandom(20)
+
+  
+      LOGINFO('Computing extended key from seed')
+      fullExtendedRoot = HDWalletCrypto().ConvertSeedToMasterKey(self.bip32seed)
+      
+      rootPriv_plain = fullExtendedRoot.getPriv()
+      rootPriv_encr  = None
+      rootPub        = fullExtendedRoot.getPub()
+      rootChain      = fullExtendedRoot.getChain()
+      
+      LOGINFO('Computing extended key from seed')
+      self.privCryptInfo = cryptInfo
+      if not cryptInfo==None:
+         
+
+
+
+      # FLAGS
+      self.isPhoneRoot = False  # don't send from, unless emergency sweep
+      self.isSiblingRoot = False # observer root of a multi-sig wlt, don't use
+      i
+
+   #############################################################################
+   def CreateNewJBOKRoot(self, typeStr='BIP32', cryptInfo=None, MofN=None):
+      """
+      JBOK is "just a bunch of keys," like the original Bitcoin-Qt client 
+      (prior to version... 0.8?).   We don't actually need a deterministic 
+      part in this root/chain... it's only holding a bunch of unrelated 
+      """
+      raise NotImplementedError
 
    #############################################################################
    def advanceHighestIndex(self, ct=1):
@@ -12782,6 +12918,9 @@ class ArmoryRoot(object):
 
    #############################################################################
    def forkObserverChain(self, newWalletFile, shortLabel='', longLabel=''):
+
+
+
 
 
 ################################################################################
@@ -13088,7 +13227,7 @@ class WalletEntry(object):
       bp.put(UINT32,       weBytes)                         #widthBytes= 4
       bp.put(UINT32,       self.payloadPadding)             #widthBytes= 4
       bp.put(BINARY_CHUNK, self.parentRoot160,               widthBytes=20)
-      bp.put(BINARY_CHUNK, self.encryptInfo.serialize())    #widthBytes=64
+      bp.put(BINARY_CHUNK, self.encryptInfo.serialize(),     widthBytes=32)
 
       # Put in checksum of header data
       weHeadChk = computeChecksum(bp.getBinaryString())
@@ -13878,7 +14017,11 @@ class ArmoryWalletFile(object):
 
       
    #############################################################################
-   def addPregeneratedMasterSeed(self, 
+   def addPregeneratedMasterSeed(self, plainSeed=None, encrSeed=None):
+
+
+   #############################################################################
+   def addPregeneratedMasterRoot(self, plainSeed=None, encrSeed=None):
 
 
    #############################################################################
@@ -13932,11 +14075,13 @@ class ArmoryWalletFile(object):
       # of whether we are using encryption (yet).  The new KDF will be stored
       # with the wallet, and used by default whenever we want to encrypt 
       # something
+      LOGDEBUG('Creating new KDF object')
       newKDF = KdfObject().createNewKDF('ROMixOv2', kdfTargSec, kdfMaxMem)
       self.kdfMap[newKDF.getKdfID()] = newKDF
 
       #####
       # If a secure passphrase was supplied, create a new master encryption key
+      LOGDEBUG('Creating new master encryption key')
       if not securePassphrase==None:
          securePassphrase = SecureBinaryData(securePassphrase)
          newEKey = EncryptionKey().CreateNewMasterKey(newKDF, \
@@ -13945,9 +14090,10 @@ class ArmoryWalletFile(object):
          self.ekeyMap[newEKey.getEncryptionKeyID()] = newEKey
 
       #####
-      # If requested (usually is), create new master root, and create a wallet
+      # If requested (usually is), create new master seed and the first wlt
+      LOGDEBUG('Creating new master root seed & node')
       if createNewRoot:
-         newRoot = ArmoryRoot().createNewRoot
+         newRoot = ArmoryRoot().CreateNewMasterRoot
       
 
 
