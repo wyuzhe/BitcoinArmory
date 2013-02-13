@@ -304,6 +304,7 @@ class ChecksumError(Exception): pass
 class WalletAddressError(Exception): pass
 class PassphraseError(Exception): pass
 class EncryptionError(Exception): pass
+class InitVectError(Exception): pass
 class InterruptTestError(Exception): pass
 class NetworkIDError(Exception): pass
 class WalletExistsError(Exception): pass
@@ -1812,36 +1813,34 @@ def uriPercentToReserved(theStr):
 ################################################################################
 # This method looks like it's from an older commit merged in, but more elaborate
 # Not sure if it's still useful, or why the newer version looks so crappy
-"""
-def createBitcoinURI(addr160=None, addrStr=None, amt=None, lbl=None, msg=None):
-   output = 'bitcoin:'
-   if addr160==None:
-      if addrStr==None:
-         raise BadAddressError, 'No address specified for URL string'
-      elif not checkAddrStrValid(addrStr):
-         raise BadAddressError, 'Bad address supplied for URL string'
-      else:
-         output += addrStr
-   else:
-      output += hash160_to_addrStr(addr160)
+#def createBitcoinURI(addr160=None, addrStr=None, amt=None, lbl=None, msg=None):
+   #output = 'bitcoin:'
+   #if addr160==None:
+      #if addrStr==None:
+         #raise BadAddressError, 'No address specified for URL string'
+      #elif not checkAddrStrValid(addrStr):
+         #raise BadAddressError, 'Bad address supplied for URL string'
+      #else:
+         #output += addrStr
+   #else:
+      #output += hash160_to_addrStr(addr160)
    
 
-   extrasList = []
-   if not amount==None:
-      extrasList.append('amount=%s' % coin2str(amt, maxZeros=0))
+   #extrasList = []
+   #if not amount==None:
+      #extrasList.append('amount=%s' % coin2str(amt, maxZeros=0))
 
-   if not lbl==None:
-      extrasList.append('label=%s' % uriReservedToPercent(lbl))
+   #if not lbl==None:
+      #extrasList.append('label=%s' % uriReservedToPercent(lbl))
    
-   if not msg==None:
-      extrasList.append('message=%s' % uriReservedToPercent(msg))
+   #if not msg==None:
+      #extrasList.append('message=%s' % uriReservedToPercent(msg))
    
-   if len(extrasList)>0:
-      output += '?' 
-      output += '&'.join(extrasList)
+   #if len(extrasList)>0:
+      #output += '?' 
+      #output += '&'.join(extrasList)
 
-   return output
-"""
+   #return output
 
 # Here's the one that's a lot simpler but newer...
 def createBitcoinURI(addr, amt=None, msg=None):
@@ -2728,92 +2727,6 @@ class ArmoryAddress(object):
 
 
 
-   #############################################################################
-   def spawnChild(self, childID, decryptKey=None):
-      """
-      We require some fairly complicated logic here, due to the fact that a
-      user with a full, private-key-bearing wallet, may try to generate a new
-      key/address without supplying a passphrase.  If this happens, the wallet
-      logic gets mucked up -- we don't want to reject the request to
-      generate a new address, but we can't compute the private key until the
-      next time the user unlocks their wallet.  Thus, we have to save off the
-      data they will need to create the key, to be applied on next unlock.
-      """
-
-      
-      TimerStart('spawnChild')
-
-      if not self.hasChaincode():
-         raise KeyDataError, 'No chaincode has been defined to extend chain'
-
-      privAvail = self.getPrivKeyAvailability()
-      if privAvail==PRIV_KEY_AVAIL.NextUnlock:
-         LOGERROR('Cannot allow multi-level priv key generation while locked')
-         LOGERROR('i.e. If your wallet has previously computed m/x and M/x,')
-         LOGERROR('but it is currently encrypted, then it can spawn m/x/y by')
-         LOGERROR('storing the encrypted version of m/x and its chaincode')
-         LOGERROR('and then computing it on next unlock.  But if m/x/y is ')
-         LOGERROR('currently in that state, you cannot then spawn m/x/y/z ')
-         LOGERROR('until you have unlocked m/x/y once.  This is what is ')
-         LOGERROR('meant by "multi-level key generation while locked')
-         raise KeyDataError, 'Cannot do multi-level priv key gen while locked'
-                              
-      wasLocked  = False
-      if privAvail==PRIV_KEY_AVAIL.Encrypted:
-         if not self.verifyEncryptionKey(decryptKey):
-            raise PassphraseError, 'Incorrect passphrase entered to spawn child'
-         else:
-            self.unlock(decryptKey)
-            privAvail = PRIV_KEY_AVAIL.Plain
-            wasLocked = True # will re-lock at the end of this operation
-
-
-      # If we have key data and it's encrypted, it's decrypted by now.
-      # extchild has priv key if we have privavail == plain.  Else, we extend
-      # only the public part
-      childAddr = ArmoryAddress()
-      extChild  = HDWalletCrypto().ChildKeyDeriv(self.getExtendedKey(), childID)
-
-      # In all cases we compute a new public key and chaincode
-      childAddr.binPubKey33or65 = extChild.getPub().copy()
-      childAddr.binChaincode    = extChild.getChain().copy()
-
-      if privAvail==PRIV_KEY_AVAIL.Plain:
-         # We are extending a chain using private key data (unencrypted)
-         childAddr.binPrivKey32_Plain  = extChild.getPriv().copy()
-         childAddr.needToDerivePrivKey = False
-      elif privAvail==PRIV_KEY_AVAIL.NextUnlock:
-         # Copy the parent's encrypted key data to child, set flag
-         childAddr.binPrivKey32_Encr = self.binPrivKey32_Encr.copy()
-         childAddr.binChaincode      = self.binChaincode.copy()
-         childAddr.needToDerivePrivKey = True
-      elif privAvail==PRIV_KEY_AVAIL.None:
-         # Probably just extending a public key
-         childAddr.binPrivKey32_Plain  = SecureBinaryData(0)
-         childAddr.needToDerivePrivKey = False
-      else:
-         LOGERROR('How did we get here?  spawnchild:')
-         LOGERROR('   privAvail == %s', privAvail)
-         LOGERROR('   encrypt   == %s', self.useEncryption)
-         LOGERROR('Bailing without spawning child')
-         raise KeyDataError
-   
-      childAddr.parentHash160      = extChild.getParentHash160().copy()
-      childAddr.binAddr160         = self.binPubKey33or65.getHash160()
-      childAddr.useEncryption      = self.useEncryption
-      childAddr.isInitialized      = True
-      childAddr.childIdentifier    = childID
-      childAddr.hdwDepth           = self.hdwDepth+1
-      childAddr.indexList          = self.indexList[:]
-      childAddr.indexList.append(childID)
-
-      if childAddr.useEncryption and not childAddr.needToDerivePrivKey:
-         # We can't get here without a [valid] decryptKey 
-         childAddr.lock(decryptKey)
-         if not wasLocked:
-            childAddr.unlock(decryptKey)
-            self.unlock(decryptKey)
-      return childAddr
 
 
 
@@ -11672,11 +11585,12 @@ def SaveTimingsCSV(fname):
 
 
 
-CRYPT_KEY_SRC = enum('PASSWD', 'PARENT', 'OBJECT')
-CRYPT_IV_SRC  = enum('STORED', 'PUBKEY')
+################################################################################
+CRYPT_KEY_SRC = enum('PASSWORD', 'PARCHAIN', 'EKEYOBJ')
+CRYPT_IV_SRC  = enum('STOREDIV', 'PUBKEY20')
 NULLSTR8 = '\x00'*8
-KNOWN_CRYPTO = {'AE256CFB': {'blocksize': 16}, \
-                'AE256CBC': {'blocksize': 16} }
+KNOWN_CRYPTO = {'AE256CFB': {'blocksize': 16, 'keysize': 32}, \
+                'AE256CBC': {'blocksize': 16, 'keysize': 32} }
 
 ################################################################################
 ################################################################################
@@ -11780,6 +11694,9 @@ class ArmoryCryptInfo(object):
               self.keySource==NULLSTR8 and \
               self.ivSource==NULLSTR8)
 
+   #############################################################################
+   def useEncryption(self):
+      return (not self.encryptInfo.noEncryption())
 
    ############################################################################
    def useKeyDerivFunc(self):
@@ -11797,7 +11714,7 @@ class ArmoryCryptInfo(object):
          return False
 
       # A non-zero ivSource is "stored" if it's not one of the sentinel values
-      return (self.getEncryptIV()[0] == CRYPT_IV_SRC.STORED)
+      return (self.getEncryptIV()[0] == CRYPT_IV_SRC.STOREDIV)
 
 
    ############################################################################
@@ -11819,11 +11736,11 @@ class ArmoryCryptInfo(object):
    ############################################################################
    def getEncryptKeySrc(self):
       if self.keySource=='PARCHAIN':
-         return (CRYPT_KEY_SRC.PARENT, '')
+         return (CRYPT_KEY_SRC.PARCHAIN, '')
       elif self.keySource=='PASSWORD':
-         return (CRYPT_KEY_SRC.PASSWD, '')
+         return (CRYPT_KEY_SRC.PASSWORD, '')
       else:
-         return (CRYPT_KEY_SRC.OBJECT, self.keySource)
+         return (CRYPT_KEY_SRC.EKEYOBJ, self.keySource)
 
 
 
@@ -11853,9 +11770,9 @@ class ArmoryCryptInfo(object):
    ############################################################################
    def getEncryptIVSrc(self):
       if self.ivSource=='PUBKEY20':
-         return (CRYPT_IV_SRC.PUBKEY, '')
+         return (CRYPT_IV_SRC.PUBKEY20, '')
       else:
-         return (CRYPT_IV_SRC.STORED, self.ivSource)
+         return (CRYPT_IV_SRC.STOREDIV, self.ivSource)
 
       
 
@@ -11905,10 +11822,9 @@ class ArmoryCryptInfo(object):
       """
 
       # If we are using a master encryption key, then we create a modified
-      # copy of self, using the unlocked ekey as the key data.  Use the copy
-      # throughout the rest of the method.
-      einfo = self.copy()
+      # copy of self, using the unlocked ekey as the key data.  
       if not ekeyObj==None:
+         einfo = self.copy()
          if not ekeyObj.getEncryptionKeyID() == self.keySource:
             LOGERROR('Supplied ekeyObj does not match keySource, in encrypt')
             raise EncryptionError
@@ -11922,12 +11838,20 @@ class ArmoryCryptInfo(object):
                LOGERROR('Supplied locked ekeyObj incorrect passphrase')
                raise EncryptionError
 
-         keyData = ekeyObj.masterKeyPlain.copy()
+         masterKey = ekeyObj.masterKeyPlain.copy()
          einfo.encryptAlgo = ekeyObj.ekeyType
+         # einfo is now a non-master-key-required ArmoryCryptInfo object.
+         # The key data required is just the plaintext of the master key.
+         return einfo.encrypt(plaintext, keyData=masterKey, ivData=ivData)
+      else:
+         keysrc = self.getEncryptKeySrc()[0]
+         if keysrc == CRYPT_KEY_SRC.EKEYOBJ:
+            LOGERROR('EncryptionKey object required but not supplied')
+            raise EncryptionError
+
+
 
          
-
-      # If we were given an ekey object and we got here, it is unlocked
 
       # We need to fail if plaintext is not padded to the blocksize of the
       # cipher.  The reason is that this function should only pass out encrypted
@@ -11936,39 +11860,43 @@ class ArmoryCryptInfo(object):
       # object for the cipher blocksize, and pad it before passing in (and also
       # take note somewhere of what the original datasize was).
       plaintext = SecureBinaryData(plaintext)
-      if not (plaintext.getSize() % einfo.getBlockSize() == 0):
-         LOGERROR('Ciphertext has wrong length: %d bytes', plaintext.getSize())
-         LOGERROR('Length expected to be padded to %d bytes', einfo.getBlockSize())
-         raise EncryptionError, 'Cannot encrypt non-multiple of blocksize'
+      if not (plaintext.getSize() % self.getBlockSize() == 0):
+         LOGERROR('Plaintext has wrong length: %d bytes', plaintext.getSize())
+         LOGERROR('Length expected to be padded to %d bytes', self.getBlockSize())
+         raise EncryptionError, 'Cannot encrypt non-multiple of crypto-blocksize'
 
       # IV data might actually be part of this object, not supplied
-      if not einfo.hasStoredIV():
+      if not self.hasStoredIV():
          if not ivData:
             LOGERROR('Cannot encrypt without initialization vector.')
-            return
+            raise InitVectError 
          ivData = SecureBinaryData(ivData)
       elif not ivData:
-         ivData = einfo.ivSource.copy()
+         ivData = self.ivSource.copy()
       else:
          LOGERROR('ArmoryCryptInfo has stored IV and was also supplied one!')
          LOGERROR('Do not want to risk encrypting with wrong IV ... bailing')
-         raise EncryptionError 
+         raise InitVectError 
+
+      # All IV data is 8 bytes, though we need 16-byte IVs.  The IVs only need
+      # a small amount of entropy in them -- 8 bytes is enough.  
+      ivData.padDataMod(self.getBlockSize())
 
 
-      # Apply KDf if it's requested
-      if einfo.useKeyDerivFunc(): 
-         if not KdfObject.kdfIsRegistered(einfo.kdfObjID):
-            LOGERROR('KDF is not registered: %s', binary_to_hex(einfo.kdfObjID))
+      # Apply KDF if it's requested
+      if self.useKeyDerivFunc(): 
+         if not KdfObject.kdfIsRegistered(self.kdfObjID):
+            LOGERROR('KDF is not registered: %s', binary_to_hex(self.kdfObjID))
             cipher = SecureBinaryData(0)
-         keyData = KdfObject.REGISTERED_KDFS[einfo.kdfObjID].execKDF(keyData)
+         keyData = KdfObject.REGISTERED_KDFS[self.kdfObjID].execKDF(keyData)
 
       # Now perform the encryption using the encryption key
-      if einfo.encryptAlgo=='AE256CFB':
+      if self.encryptAlgo=='AE256CFB':
          cipher = CryptoAES().EncryptCFB(plaintext, keyData, ivData)
-      elif einfo.encryptAlgo=='AE256CBC':
+      elif self.encryptAlgo=='AE256CBC':
          cipher = CryptoAES().EncryptCBC(plaintext, keyData, ivData)
       else:
-         LOGERROR('Unrecognized encryption algorithm: %s', einfo.encryptAlgo)
+         LOGERROR('Unrecognized encryption algorithm: %s', self.encryptAlgo)
          cipher = SecureBinaryData(0)
          
       plaintext.destroy()
@@ -11989,8 +11917,11 @@ class ArmoryCryptInfo(object):
       data for encryption/decryption.
       """
 
-      einfo = self.copy()
+
+      # If we are using a master encryption key, then we create a modified
+      # copy of self, using the unlocked ekey as the key data.  
       if not ekeyObj==None:
+         einfo = self.copy()
          if not ekeyObj.getEncryptionKeyID() == self.keySource:
             LOGERROR('Supplied ekeyObj does not match keySource, in encrypt')
             raise EncryptionError
@@ -11999,19 +11930,28 @@ class ArmoryCryptInfo(object):
             if keyData==None:
                LOGERROR('Supplied locked ekeyObj without passphrase')
                raise EncryptionError
+
             if not ekeyObj.unlock(keyData):
                LOGERROR('Supplied locked ekeyObj incorrect passphrase')
                raise EncryptionError
 
-         keyData = ekeyObj.masterKeyPlain.copy()
+         masterKey = ekeyObj.masterKeyPlain.copy()
          einfo.encryptAlgo = ekeyObj.ekeyType
+         # einfo is now a non-master-key-required ArmoryCryptInfo object.
+         # The key data required is just the plaintext of the master key.
+         return einfo.decrypt(ciphertext, keyData=masterKey, ivData=ivData)
+      else:
+         keysrc = self.getEncryptKeySrc()[0]
+         if keysrc == CRYPT_KEY_SRC.EKEYOBJ:
+            LOGERROR('EncryptionKey object required but not supplied')
+            raise EncryptionError
 
 
       # Make sure all the data is in SBD form -- will also be easier to destroy
       ciphertext = SecureBinaryData(ciphertext)
-      if not (ciphertext.getSize() % einfo.getBlockSize() == 0):
+      if not (ciphertext.getSize() % self.getBlockSize() == 0):
          LOGERROR('Ciphertext has wrong length: %d bytes', ciphertext.getSize())
-         LOGERROR('Length expected to be padded to %d bytes', einfo.getBlockSize())
+         LOGERROR('Length expected to be padded to %d bytes', self.getBlockSize())
          raise EncryptionError, 'Cannot decrypt non-multiple of blocksize'
 
       # IV data might actually be part of this object, not supplied
@@ -12021,11 +11961,16 @@ class ArmoryCryptInfo(object):
             return
          ivData = SecureBinaryData(ivData)
       elif not ivData:
-         ivData = einfo.ivSource.copy()
+         ivData = self.ivSource.copy()
       else:
+         # Don't need to bail because this failing does not cause irreversible 
+         # damage like if we encrypt with one IV and store a different one.
          LOGERROR('ArmoryCryptInfo has stored IV and was also supplied one!')
          LOGERROR('Using stored IV to attempt to decrypt')
-         # Don't need to bail
+
+      # All IV data is 8 bytes, though we need 16-byte IVs.  The IVs only need
+      # a small amount of entropy in them -- 8 bytes is enough.  
+      ivData.padDataMod(self.getBlockSize())
 
       # Apply KDf if it's requested
       if self.useKeyDerivFunc(): 
@@ -12705,7 +12650,8 @@ class ArmoryRoot(object):
       self.p2shMap       = {}  # maps raw P2SH scripts to full scripts.
 
       self.relationship    = RootRelationship(None)
-      self.privCryptInfo   = ArmoryCryptInfo(None)
+      self.rootCryptInfo   = ArmoryCryptInfo(None)
+      self.seedCryptInfo   = ArmoryCryptInfo(None)
       self.outerCryptInfo  = ArmoryCryptInfo(None)
 
       self.uniqueIDBin = ''
@@ -12715,8 +12661,13 @@ class ArmoryRoot(object):
       self.highestUsedChainIndex  = 0 
       self.lastSyncBlockNum = 0
 
-      self.hdwChildID = -1
+      self.rootPriv_plain = SecureBinaryData(0)
+      self.rootPriv_encr  = SecureBinaryData(0)
+      self.rootPub        = SecureBinaryData(0)
+      self.rootChain      = SecureBinaryData(0)
+      self.hdwChildIndex = -1
       self.hdwDepth = -1
+      self.hdwIndexList = []
 
       self.parentWltRef = None
 
@@ -12727,7 +12678,9 @@ class ArmoryRoot(object):
       # (perhaps old Armory chains, will use different name to identify we
       # may do something different)
       self.walletType = "BIP32"
-      self.bip32seed  = None
+      self.bip32seed_plain = SecureBinaryData(0)
+      self.bip32seed_encr  = SecureBinaryData(0)
+      self.bip32seed_size  = 0
 
       # FLAGS
       self.isPhoneRoot = False  # don't send from, unless emergency sweep
@@ -12744,6 +12697,9 @@ class ArmoryRoot(object):
       # "removed" and don't display it or do anything with it.
       self.userRemoved = False
 
+
+      self.lockTimeout  = 10   # seconds after unlock, that key is discarded
+      self.relockAtTime = 0    # seconds after unlock, that key is discarded
 
       """
       self.fileTypeStr    = '\xbaWALLET\x00'
@@ -12815,10 +12771,46 @@ class ArmoryRoot(object):
       self.offsetCrypto    = -1
       """
 
+   #############################################################################
+   def hasPubKey(self):
+      return (self.rootPriv_plain.getSize()>0) or (self.rootPriv_encr.getSize()>0):
+
+   #############################################################################
+   def hasPrivKey(self):
+      return (self.rootPriv_plain.getSize()>0) or (self.rootPriv_encr.getSize()>0):
+
+   #############################################################################
+   def hasPlainPriv(self):
+      return (self.rootPriv_plain.getSize()>0) or (self.rootPriv_encr.getSize()>0):
+
+   #############################################################################
+   def getprivateextendedkey(self):
+      if not self.hasPrivKey():
+         LOGERROR('Requested private ext key, but this root does not have it')
+         raise KeyDataError
+
+      if not self.hasPlainPriv():
+         LOGERROR('Requested private ext key, but root is not unlocked')
+         raise WalletLockError, 'hasPrivKey() but not hasPlain or hasEncr'
+
+      return ExtendedKey( SecureBinaryData(self.binPrivKey32_Plain),
+                          SecureBinaryData(self.binPubKey33or65),
+                          SecureBinaryData(self.binChaincode))
+
+
+   #############################################################################
+   def getprivateextendedkey(self):
+      return ExtendedKey(  SecureBinaryData(0),
+                           SecureBinaryData(self.binPubKey33or65),
+                           SecureBinaryData(self.binChaincode))
+      
+      else:
+         raise WalletLockError, 'Need at least public key to create extended key'
+
 
    #############################################################################
    def CreateNewMasterRoot(self, typeStr='BIP32', cryptInfo=None, \
-                                 ekeyObj=None, keyData=None, ivData=None):
+                                 ekeyObj=None, keyData=None):
       """
       The last few arguments identify how we plan to encrypt the seed and 
       master node information.  We plan to write this stuff to file right
@@ -12840,30 +12832,123 @@ class ArmoryRoot(object):
       # 16 bytes would probably be enough, but I add 4 extra for some margin
       # Keep generating them until
       LOGINFO('Searching for acceptable BIP32 seed...')
-      self.bip32seed  = SecureBinaryData().GenerateRandom(20)
-      while not SipaStretchFunc(self.bip32seed, n=12):
-         self.bip32seed = SecureBinaryData().GenerateRandom(20)
+      self.bip32seed_plain  = SecureBinaryData().GenerateRandom(20)
+      while not SipaStretchFunc(self.bip32seed_plain, n=12):
+         self.bip32seed_plain = SecureBinaryData().GenerateRandom(20)
 
+      LOGINFO('Computing extended key from seed')
+      fullExtendedRoot = HDWalletCrypto().ConvertSeedToMasterKey(\
+                                                   self.bip32seed_plain)
+      
+      self.rootPriv_plain = fullExtendedRoot.getPriv()
+      self.rootPub        = fullExtendedRoot.getPub()
+      self.rootChain      = fullExtendedRoot.getChain()
+      
+
+      # We have a 20-byte seed, but will need to be padded for 16-byte
+      # blocksize if we ever need to encrypt it.
+      self.bip32seed_size = self.bip32seed_plain.getSize()
+      self.bip32seed_plain.padDataMod(cryptInfo.getBlockSize())
   
-      LOGINFO('Computing extended key from seed')
-      fullExtendedRoot = HDWalletCrypto().ConvertSeedToMasterKey(self.bip32seed)
-      
-      rootPriv_plain = fullExtendedRoot.getPriv()
-      rootPriv_encr  = None
-      rootPub        = fullExtendedRoot.getPub()
-      rootChain      = fullExtendedRoot.getChain()
-      
-      LOGINFO('Computing extended key from seed')
-      self.privCryptInfo = cryptInfo
-      if not cryptInfo==None:
-         
 
+      # If no crypt info was designated, used default from this wallet file
+      if cryptInfo==None:
+         LOGINFO('No encryption requested, setting NULL encrypt objects')
+         self.rootCryptInfo = ArmoryCryptInfo(None)
+         self.seedCryptInfo = ArmoryCryptInfo(None)
+         self.bip32seed_encr = ''
+         self.rootPriv_encr  = ''
+      else
+         LOGINFO('Specified encryption.  Randomizing IV data for seed and root')
+         self.rootCryptInfo = cryptInfo.copy()
+         self.seedCryptInfo = cryptInfo.copy()
+         self.rootCryptInfo.ivSource = SecureBinaryData().GenerateRandom(8)
+         self.seedCryptInfo.ivSource = SecureBinaryData().GenerateRandom(8)
 
+         self.lock(  ekeyObj=ekeyObj, keyData=keyData)
+         self.unlock(ekeyObj=ekeyObj, keyData=keyData)
 
+            
       # FLAGS
+      self.uniqueIDBin = ''
+      self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
+      self.hdwChildID = -1
+      self.hdwDepth = -1
+      self.hdwIndexList = []
+      self.lastComputedChainAddr160  = ''
+      self.lastComputedChainIndex = 0
+      self.highestUsedChainIndex  = 0 
+      self.lastSyncBlockNum = 0
       self.isPhoneRoot = False  # don't send from, unless emergency sweep
       self.isSiblingRoot = False # observer root of a multi-sig wlt, don't use
-      i
+
+
+   #############################################################################
+   def lock(self, ekeyObj=None, encryptKey=None):
+      if self.rootPriv_encr.getSize() > 0:
+         self.rootPriv_encr.destroy()
+         self.bip32seed_encr.destroy()
+         return True
+      elif self.rootPriv_plain.getSize() == 0:
+         LOGERROR('No key data is present to lock')
+         raise EncryptionError
+      elif encryptKey==None:
+         LOGERROR('Need encryption info to lock the wallet')
+         raise EncryptionError
+      elif not self.rootCryptInfo.hasStoredIV() or \
+           not self.seedCryptInfo.hasStoredIV()
+         LOGERROR('No stored IV on an ArmoryRoot object')
+         raise InitVectError
+
+
+      # The ArmoryCryptInfo::encrypt method handles everything as long as 
+      # you pass in sufficient information for it to do its thing.  Since
+      # this is root which always stores its own IV, we don't need to pass
+      # one in
+      self.rootPriv_encr = self.rootCryptInfo.encrypt(self.rootPriv_plain, \
+                                                      ekeyObj=ekeyObj, \
+                                                      keyData=encryptKey)
+            
+      self.bip32seed_encr = self.seedCryptInfo.encrypt(self.bip32seed_plain, \
+                                                       ekeyObj=ekeyObj, \
+                                                       keyData=encryptKey)
+
+      self.rootPriv_encr.destroy()
+      self.bip32seed_encr.destroy()
+      return True
+
+
+   #############################################################################
+   def unlock(self, ekeyObj=None, encryptKey=None):
+      if self.rootPriv_plain.getSize() > 0:
+         return True
+      elif self.rootPriv_encr.getSize() == 0:
+         LOGERROR('No key data is present to unlock')
+         raise EncryptionError
+      elif encryptKey==None:
+         LOGERROR('Need decryption info to unlock the wallet')
+         raise EncryptionError
+      elif not self.rootCryptInfo.hasStoredIV() or \
+           not self.seedCryptInfo.hasStoredIV()
+         LOGERROR('No stored IV on an ArmoryRoot object')
+         raise InitVectError
+
+
+      # The ArmoryCryptInfo::encrypt method handles everything as long as 
+      # you pass in sufficient information for it to do its thing.  Since
+      # this is root which always stores its own IV, we don't need to pass
+      # one in
+      self.rootPriv_plain = self.rootCryptInfo.decrypt(self.rootPriv_encr, \
+                                                       ekeyObj=ekeyObj, \
+                                                       keyData=encryptKey)
+            
+      self.bip32seed_plain = self.seedCryptInfo.decrypt(self.bip32seed_encr, \
+                                                        ekeyObj=ekeyObj, \
+                                                        keyData=encryptKey)
+
+      self.relockAtTime = RightNow + self.lockTimeout
+      return True
+
 
    #############################################################################
    def CreateNewJBOKRoot(self, typeStr='BIP32', cryptInfo=None, MofN=None):
@@ -12921,6 +13006,92 @@ class ArmoryRoot(object):
 
 
 
+   #############################################################################
+   def spawnChild(self, childID, decryptKey=None):
+      """
+      We require some fairly complicated logic here, due to the fact that a
+      user with a full, private-key-bearing wallet, may try to generate a new
+      key/address without supplying a passphrase.  If this happens, the wallet
+      logic gets mucked up -- we don't want to reject the request to
+      generate a new address, but we can't compute the private key until the
+      next time the user unlocks their wallet.  Thus, we have to save off the
+      data they will need to create the key, to be applied on next unlock.
+      """
+
+      
+      TimerStart('spawnChild')
+
+      if not self.hasChaincode():
+         raise KeyDataError, 'No chaincode has been defined to extend chain'
+
+      privAvail = self.getPrivKeyAvailability()
+      if privAvail==PRIV_KEY_AVAIL.NextUnlock:
+         LOGERROR('Cannot allow multi-level priv key generation while locked')
+         LOGERROR('i.e. If your wallet has previously computed m/x and M/x,')
+         LOGERROR('but it is currently encrypted, then it can spawn m/x/y by')
+         LOGERROR('storing the encrypted version of m/x and its chaincode')
+         LOGERROR('and then computing it on next unlock.  But if m/x/y is ')
+         LOGERROR('currently in that state, you cannot then spawn m/x/y/z ')
+         LOGERROR('until you have unlocked m/x/y once.  This is what is ')
+         LOGERROR('meant by "multi-level key generation while locked')
+         raise KeyDataError, 'Cannot do multi-level priv key gen while locked'
+                              
+      wasLocked  = False
+      if privAvail==PRIV_KEY_AVAIL.Encrypted:
+         if not self.verifyEncryptionKey(decryptKey):
+            raise PassphraseError, 'Incorrect passphrase entered to spawn child'
+         else:
+            self.unlock(decryptKey)
+            privAvail = PRIV_KEY_AVAIL.Plain
+            wasLocked = True # will re-lock at the end of this operation
+
+
+      # If we have key data and it's encrypted, it's decrypted by now.
+      # extchild has priv key if we have privavail == plain.  Else, we extend
+      # only the public part
+      childAddr = ArmoryAddress()
+      extChild  = HDWalletCrypto().ChildKeyDeriv(self.getExtendedKey(), childID)
+
+      # In all cases we compute a new public key and chaincode
+      childAddr.binPubKey33or65 = extChild.getPub().copy()
+      childAddr.binChaincode    = extChild.getChain().copy()
+
+      if privAvail==PRIV_KEY_AVAIL.Plain:
+         # We are extending a chain using private key data (unencrypted)
+         childAddr.binPrivKey32_Plain  = extChild.getPriv().copy()
+         childAddr.needToDerivePrivKey = False
+      elif privAvail==PRIV_KEY_AVAIL.NextUnlock:
+         # Copy the parent's encrypted key data to child, set flag
+         childAddr.binPrivKey32_Encr = self.binPrivKey32_Encr.copy()
+         childAddr.binChaincode      = self.binChaincode.copy()
+         childAddr.needToDerivePrivKey = True
+      elif privAvail==PRIV_KEY_AVAIL.None:
+         # Probably just extending a public key
+         childAddr.binPrivKey32_Plain  = SecureBinaryData(0)
+         childAddr.needToDerivePrivKey = False
+      else:
+         LOGERROR('How did we get here?  spawnchild:')
+         LOGERROR('   privAvail == %s', privAvail)
+         LOGERROR('   encrypt   == %s', self.useEncryption)
+         LOGERROR('Bailing without spawning child')
+         raise KeyDataError
+   
+      childAddr.parentHash160      = extChild.getParentHash160().copy()
+      childAddr.binAddr160         = self.binPubKey33or65.getHash160()
+      childAddr.useEncryption      = self.useEncryption
+      childAddr.isInitialized      = True
+      childAddr.childIdentifier    = childID
+      childAddr.hdwDepth           = self.hdwDepth+1
+      childAddr.indexList          = self.indexList[:]
+      childAddr.indexList.append(childID)
+
+      if childAddr.useEncryption and not childAddr.needToDerivePrivKey:
+         # We can't get here without a [valid] decryptKey 
+         childAddr.lock(decryptKey)
+         if not wasLocked:
+            childAddr.unlock(decryptKey)
+            self.unlock(decryptKey)
+      return childAddr
 
 
 ################################################################################
@@ -13162,9 +13333,6 @@ class WalletEntry(object):
          out = roundUpMod(out, self.payloadPadding)
       return out
 
-   #############################################################################
-   def useEncryption(self):
-      return (not self.encryptInfo.noEncryption())
 
    #############################################################################
    def fsync(self):

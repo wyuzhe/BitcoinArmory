@@ -84,6 +84,18 @@ SecureBinaryData SecureBinaryData::copySwapEndian(size_t pos1, size_t pos2) cons
 }
 
 /////////////////////////////////////////////////////////////////////////////
+// Add padding to the right side of a SBD object
+void SecureBinaryData::padDataMod(uint32_t modSz, uint8_t c)
+{
+   uint32_t currSz = getSize();
+   uint32_t newSz  = ((currSz + modSz - 1) / modSz) * modSz;
+   resize(newSz);
+   for(uint32_t e=currSz; e<newSz; e++)
+      (*this)[e] = c;
+   lockData();
+}
+
+/////////////////////////////////////////////////////////////////////////////
 SecureBinaryData SecureBinaryData::GenerateRandom(uint32_t numBytes)
 {
    static CryptoPP::AutoSeededRandomPool prng;

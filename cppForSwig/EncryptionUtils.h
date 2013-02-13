@@ -194,6 +194,7 @@ public:
 
    void resize(size_t sz)  { BinaryData::resize(sz);  lockData(); }
    void reserve(size_t sz) { BinaryData::reserve(sz); lockData(); }
+   void padDataMod(uint32_t modSz, uint8_t c=0x00);
 
 
    BinaryData    getRawCopy(void) const { return BinaryData(getPtr(), getSize()); }
