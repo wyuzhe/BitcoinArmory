@@ -1968,6 +1968,7 @@ class ArmoryAddress(object):
       self.binPubKey33or65       = SecureBinaryData()  # Compressed or not
       self.binPrivKey32_Encr     = SecureBinaryData()  # BIG-ENDIAN
       self.binPrivKey32_Plain    = SecureBinaryData()
+      self.binChaincode          = SecureBinaryData()
       self.childIdentifier       = UINT32_MAX   # may allow strings in the future
       self.hdwDepth              = 0
       self.indexList             = []
@@ -1975,10 +1976,6 @@ class ArmoryAddress(object):
       self.useEncryption         = False
       self.isInitialized         = False
       self.walletByteLoc         = -1
-
-      # If it is a root, it is not actually used to receive funds, though it has
-      # all the same properties and operations as a regular BTC address
-      self.isRootAddres          = True  
 
       # We will simply store flag to identify if this address is intended
       # to be used as part of multi-sig ... it's a lot of extra data to
@@ -1991,9 +1988,9 @@ class ArmoryAddress(object):
       # In the PyBtcAddress serialization.  This is acceptable for most use 
       # cases though:  we can generate new addresses from an existing chain,
       # but we can't create new chains without unlocking first
+      self.privCryptInfo         = ArmoryCryptInfo(None)
       self.parentHash160         = ''
       self.needToDerivePrivKey   = False
-      self.encryptDef            = ArmoryCryptInfo(None)
 
       # Information to be used by C++ to know where to search for transactions
       # in the blockchain, or at least track when it was created
@@ -2012,7 +2009,8 @@ class ArmoryAddress(object):
       self.parentWltRef  = None
       self.parentRootRef = None
 
-      self.tim
+      self.lockTimeout  = 10   # seconds after unlock, that key is discarded
+      self.relockAtTime = 0    
 
 
    #############################################################################
@@ -2185,7 +2183,6 @@ class ArmoryAddress(object):
       newAddr.partOfMultiSig     = self.partOfMultiSig
       newAddr.parentWltRef       = self.parentWltRef
       newAddr.parentRootRef      = self.parentRootRef
-      newAddr.encryptDef         = self.encryptDef
 
       return newAddr
 
@@ -2424,20 +2421,20 @@ class ArmoryAddress(object):
 
 
    #############################################################################
-   def lock(self, decryptKey=None):
+   def lock(self, ekeyObj=None, encryptKey=None):
       """
       Lock the address, which may involve re-encrypting (in which case we  
       need the encryption key to do it)
       """
       if not self.useEncryption or not self.hasPrivKey():
          # This isn't supposed to be encrypted, or there's no privkey to encrypt
-         return
+         return False
 
       if self.hasEncrPriv():
          # Addr should be encrypted, and we already have encrypted priv key
          self.binPrivKey32_Plain.destroy()
          self.isLocked = True
-         return
+         return True
         
       # If we're here, the key needs to be [re-]encrypted
       if not decryptKey:
@@ -2462,7 +2459,7 @@ class ArmoryAddress(object):
             print '***Warning: somehow keyChanged got set, but it appears that'
             print '            either encryption was not changed, or the key '
             print '            was already encrypted with the new encryption.'
-            return
+            return False
                   
       # We have an encryption key and a plaintext private key.  Do it.
       self.binPrivKey32_Encr = CryptoAES().EncryptCFB( \
@@ -2472,6 +2469,7 @@ class ArmoryAddress(object):
       # Destroy the unencrypted key, reset the keyChanged flag
       self.binPrivKey32_Plain.destroy()
       self.isLocked = True
+      return True
 
 
    #############################################################################
@@ -2485,7 +2483,7 @@ class ArmoryAddress(object):
       if not self.addrIsLocked():
          # Bail out if the wallet is unencrypted, or already unlocked
          self.isLocked = False
-         return
+         return True
 
 
       if not self.needToDerivePrivKey:
@@ -2547,8 +2545,9 @@ class ArmoryAddress(object):
                                             self.getIV())
 
          self.isLocked = False
+         self.relockAtTime = RightNow() + self.lockTimeout
 
-         return
+         return True
 
 
 
@@ -12636,13 +12635,17 @@ def SipaStretchFunc(theStr, **kwargs):
 
 #############################################################################
 #############################################################################
-class ArmoryRoot(object):
+class ArmoryRoot(ArmoryAddress):
       
+   FILECODE = 'ROOT'
+
    def __init__(self):
+      super(ArmoryRoot, self).__init__()
       self.wltCreateDate = 0
       self.labelName   = ''
       self.labelDescr  = ''
-      self.linearAddr160List = []
+      self.uniqueIDBin = ''
+      self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
       self.chainIndexMap = {}
       self.addrMap       = {}  # maps 20-byte addresses to WalletPayloadAddr objects
       self.labelsMap     = {}  # maps 20-byte addresses to user-created labels
@@ -12650,40 +12653,28 @@ class ArmoryRoot(object):
       self.p2shMap       = {}  # maps raw P2SH scripts to full scripts.
 
       self.relationship    = RootRelationship(None)
-      self.rootCryptInfo   = ArmoryCryptInfo(None)
-      self.seedCryptInfo   = ArmoryCryptInfo(None)
       self.outerCryptInfo  = ArmoryCryptInfo(None)
 
-      self.uniqueIDBin = ''
-      self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
+      self.linearAddr160List = []
       self.lastComputedChainAddr160  = ''
       self.lastComputedChainIndex = 0
       self.highestUsedChainIndex  = 0 
       self.lastSyncBlockNum = 0
 
-      self.rootPriv_plain = SecureBinaryData(0)
-      self.rootPriv_encr  = SecureBinaryData(0)
-      self.rootPub        = SecureBinaryData(0)
-      self.rootChain      = SecureBinaryData(0)
-      self.hdwChildIndex = -1
-      self.hdwDepth = -1
-      self.hdwIndexList = []
-
-      self.parentWltRef = None
-
-      self.wltVersion = ARMORY_WALLET_VERSION
-      self.wltSource  = 'ARMORY'.ljust(12, '\x00')
-
       # If this is a "normal" wallet, it is BIP32.  Other types of wallets 
       # (perhaps old Armory chains, will use different name to identify we
       # may do something different)
       self.walletType = "BIP32"
+
+      # Extra data that needs to be encrypted, if 
+      self.seedCryptInfo   = ArmoryCryptInfo(None)
       self.bip32seed_plain = SecureBinaryData(0)
       self.bip32seed_encr  = SecureBinaryData(0)
       self.bip32seed_size  = 0
 
       # FLAGS
       self.isPhoneRoot = False  # don't send from, unless emergency sweep
+      self.isFakeRoot = True    # This root has no key data.  Mainly for JBOK
       self.isSiblingRoot = False # observer root of a multi-sig wlt, don't use
 
       # In the event that some data type identifies this root as its parent AND
@@ -12698,8 +12689,6 @@ class ArmoryRoot(object):
       self.userRemoved = False
 
 
-      self.lockTimeout  = 10   # seconds after unlock, that key is discarded
-      self.relockAtTime = 0    # seconds after unlock, that key is discarded
 
       """
       self.fileTypeStr    = '\xbaWALLET\x00'
@@ -12771,46 +12760,10 @@ class ArmoryRoot(object):
       self.offsetCrypto    = -1
       """
 
-   #############################################################################
-   def hasPubKey(self):
-      return (self.rootPriv_plain.getSize()>0) or (self.rootPriv_encr.getSize()>0):
-
-   #############################################################################
-   def hasPrivKey(self):
-      return (self.rootPriv_plain.getSize()>0) or (self.rootPriv_encr.getSize()>0):
-
-   #############################################################################
-   def hasPlainPriv(self):
-      return (self.rootPriv_plain.getSize()>0) or (self.rootPriv_encr.getSize()>0):
-
-   #############################################################################
-   def getprivateextendedkey(self):
-      if not self.hasPrivKey():
-         LOGERROR('Requested private ext key, but this root does not have it')
-         raise KeyDataError
-
-      if not self.hasPlainPriv():
-         LOGERROR('Requested private ext key, but root is not unlocked')
-         raise WalletLockError, 'hasPrivKey() but not hasPlain or hasEncr'
-
-      return ExtendedKey( SecureBinaryData(self.binPrivKey32_Plain),
-                          SecureBinaryData(self.binPubKey33or65),
-                          SecureBinaryData(self.binChaincode))
-
-
-   #############################################################################
-   def getprivateextendedkey(self):
-      return ExtendedKey(  SecureBinaryData(0),
-                           SecureBinaryData(self.binPubKey33or65),
-                           SecureBinaryData(self.binChaincode))
-      
-      else:
-         raise WalletLockError, 'Need at least public key to create extended key'
-
 
    #############################################################################
    def CreateNewMasterRoot(self, typeStr='BIP32', cryptInfo=None, \
-                                 ekeyObj=None, keyData=None):
+                                 ekeyObj=None, keyData=None, seedSize=20):
       """
       The last few arguments identify how we plan to encrypt the seed and 
       master node information.  We plan to write this stuff to file right
@@ -12822,27 +12775,36 @@ class ArmoryRoot(object):
 
       if not typeStr=='BIP32':
          LOGERROR('Cannot create any roots other than BIP32 (yet)')
-         raise NotImplementedError
+         raise NotImplementedError, 'Only BIP32 wallets allowed so far')
 
       self.walletType = typeStr
       self.wltVersion = ARMORY_WALLET_VERSION
       self.wltSource  = 'ARMORY'.ljust(12, '\x00')
 
       # Uses Crypto++ PRNG -- which is suitable for cryptographic purposes
-      # 16 bytes would probably be enough, but I add 4 extra for some margin
+      # 16 bytes would probably be enough, but I add 4 extra for some margin.
+      # If you don't like it, you can configure it to however many bytes you
+      # want.
+
+      # SIPA -- generating N zero bits after 2**N iterations... if N is 
+      #         sufficiently small, we can just keep a circular buffer
+      #         of 2**N sequetial hashes, and go past 2**N until you find
+      #         one.  Then go back 2**N and use that value...
+
       # Keep generating them until
       LOGINFO('Searching for acceptable BIP32 seed...')
-      self.bip32seed_plain  = SecureBinaryData().GenerateRandom(20)
+      self.bip32seed_plain  = SecureBinaryData().GenerateRandom(seedSize)
       while not SipaStretchFunc(self.bip32seed_plain, n=12):
-         self.bip32seed_plain = SecureBinaryData().GenerateRandom(20)
+         self.bip32seed_plain = SecureBinaryData().GenerateRandom(seedSize)
 
       LOGINFO('Computing extended key from seed')
       fullExtendedRoot = HDWalletCrypto().ConvertSeedToMasterKey(\
                                                    self.bip32seed_plain)
       
-      self.rootPriv_plain = fullExtendedRoot.getPriv()
-      self.rootPub        = fullExtendedRoot.getPub()
-      self.rootChain      = fullExtendedRoot.getChain()
+      self.binPrivKey32_Plain = fullExtendedRoot.getPriv()
+      self.binPubKey33or65    = fullExtendedRoot.getPub()
+      self.binAddr160         = fullExtendedRoot.getHash160().toBinStr()
+      self.binChaincode       = fullExtendedRoot.getChain()
       
 
       # We have a 20-byte seed, but will need to be padded for 16-byte
@@ -12854,24 +12816,19 @@ class ArmoryRoot(object):
       # If no crypt info was designated, used default from this wallet file
       if cryptInfo==None:
          LOGINFO('No encryption requested, setting NULL encrypt objects')
-         self.rootCryptInfo = ArmoryCryptInfo(None)
          self.seedCryptInfo = ArmoryCryptInfo(None)
-         self.bip32seed_encr = ''
-         self.rootPriv_encr  = ''
+         self.bip32seed_encr = SecureBinaryData()
+         self.binPrivKey32_Encr  = SecureBinaryData()
       else
-         LOGINFO('Specified encryption.  Randomizing IV data for seed and root')
-         self.rootCryptInfo = cryptInfo.copy()
+         # Assume ivSource is CRYPT_IV_SRC.PUBKEY20[:16]
+         self.privCryptInfo = cryptInfo.copy()
          self.seedCryptInfo = cryptInfo.copy()
-         self.rootCryptInfo.ivSource = SecureBinaryData().GenerateRandom(8)
-         self.seedCryptInfo.ivSource = SecureBinaryData().GenerateRandom(8)
-
          self.lock(  ekeyObj=ekeyObj, keyData=keyData)
          self.unlock(ekeyObj=ekeyObj, keyData=keyData)
 
             
       # FLAGS
-      self.uniqueIDBin = ''
-      self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
+      self.uniqueIDB58 = self.computeRootID()
       self.hdwChildID = -1
       self.hdwDepth = -1
       self.hdwIndexList = []
@@ -12884,80 +12841,187 @@ class ArmoryRoot(object):
 
 
    #############################################################################
-   def lock(self, ekeyObj=None, encryptKey=None):
-      if self.rootPriv_encr.getSize() > 0:
-         self.rootPriv_encr.destroy()
-         self.bip32seed_encr.destroy()
-         return True
-      elif self.rootPriv_plain.getSize() == 0:
-         LOGERROR('No key data is present to lock')
-         raise EncryptionError
-      elif encryptKey==None:
-         LOGERROR('Need encryption info to lock the wallet')
-         raise EncryptionError
-      elif not self.rootCryptInfo.hasStoredIV() or \
-           not self.seedCryptInfo.hasStoredIV()
-         LOGERROR('No stored IV on an ArmoryRoot object')
-         raise InitVectError
+   def getRootID(self, inBase58=True, nbytes=6):
+      """ 
+      We need some way to distinguish roots from one another, other than their
+      20-byte hash.  Ideally, it will be distinct not only based on the Hash160
+      value, but also based on the chaincode and chaining algorithm.  This way,
+      if there are multiple variants/versions of code which are seeded with 
+      the same data, but uses different algorithms, they will be distinguish-
+      able.  It's also a good way to verify we are using the same algorithm as
+      the code/app that originally produced this wallet.
+
+      For this reason, if a wallet is labeled BIP32, we compute its child with
+      index FFFFFFFF, take the first nbytes, and append the address byte to it
+      (to identify the network, but put it in the back so that each root ID 
+      has a different prefix character).
+      """
+      if not self.uniqueIDBin:
+         endChild = self.spawnChild(0xFFFFFFFF)
+         self.uniqueIDBin = endChild.getHash160()[:nbytes]+ADDRBYTE
+         self.uniqueIDB58 = binary_to_base58(self.uniqueIDBin)
+
+      return self.uniqueIDB58 if inBase58 else self.uniqueIDBin
+
+
+
+   #############################################################################
+   def spawnChild(self, childID, ekeyObj=None, keyData=None):
+      """
+      We require some fairly complicated logic here, due to the fact that a
+      user with a full, private-key-bearing wallet, may try to generate a new
+      key/address without supplying a passphrase.  If this happens, the wallet
+      logic gets mucked up -- we don't want to reject the request to
+      generate a new address, but we can't compute the private key until the
+      next time the user unlocks their wallet.  Thus, we have to save off the
+      data they will need to create the key, to be applied on next unlock.
+      """
+      
+      TimerStart('spawnChild')
+
+      if not self.hasChaincode():
+         raise KeyDataError, 'No chaincode has been defined to extend chain'
+
+      privAvail = self.getPrivKeyAvailability()
+      if privAvail==PRIV_KEY_AVAIL.NextUnlock:
+         LOGERROR('Cannot allow multi-level priv key generation while locked')
+         LOGERROR('i.e. If your wallet has previously computed m/x and M/x,')
+         LOGERROR('but it is currently encrypted, then it can spawn m/x/y by')
+         LOGERROR('storing the encrypted version of m/x and its chaincode')
+         LOGERROR('and then computing it on next unlock.  But if m/x/y is ')
+         LOGERROR('currently in that state, you cannot then spawn m/x/y/z ')
+         LOGERROR('until you have unlocked m/x/y once.  This is what is ')
+         LOGERROR('meant by "multi-level key generation while locked')
+         raise KeyDataError, 'Cannot do multi-level priv key gen while locked'
+                              
+      wasLocked  = False
+      if privAvail==PRIV_KEY_AVAIL.Encrypted:
+         unlockSuccess = self.unlock(ekeyObj, keyData)
+         if not unlockSuccess:
+            raise PassphraseError, 'Incorrect decryption data to spawn child'
+         else:
+            privAvail = PRIV_KEY_AVAIL.Plain
+            wasLocked = True # will re-lock at the end of this operation
+
+
+      # If we have key data and it's encrypted, it's decrypted by now.
+      # extchild has priv key if we have privavail == plain.  Else, we extend
+      # only the public part
+      if hdwDepth<3:
+         childAddr = ArmoryRoot()
+      else:
+         childAddr = ArmoryAddress()
+         
+      childAddr.childIdentifier
+      extChild  = HDWalletCrypto().ChildKeyDeriv(self.getExtendedKey(), childID)
+
+      # In all cases we compute a new public key and chaincode
+      childAddr.binPubKey33or65 = extChild.getPub().copy()
+      childAddr.binChaincode    = extChild.getChain().copy()
+
+      if privAvail==PRIV_KEY_AVAIL.Plain:
+         # We are extending a chain using private key data (unencrypted)
+         childAddr.binPrivKey32_Plain  = extChild.getPriv().copy()
+         childAddr.needToDerivePrivKey = False
+      elif privAvail==PRIV_KEY_AVAIL.NextUnlock:
+         # Copy the parent's encrypted key data to child, set flag
+         childAddr.binPrivKey32_Encr = self.binPrivKey32_Encr.copy()
+         childAddr.binChaincode      = self.binChaincode.copy()
+         childAddr.needToDerivePrivKey = True
+      elif privAvail==PRIV_KEY_AVAIL.None:
+         # Probably just extending a public key
+         childAddr.binPrivKey32_Plain  = SecureBinaryData(0)
+         childAddr.needToDerivePrivKey = False
+      else:
+         LOGERROR('How did we get here?  spawnchild:')
+         LOGERROR('   privAvail == %s', privAvail)
+         LOGERROR('   encrypt   == %s', self.useEncryption)
+         LOGERROR('Bailing without spawning child')
+         raise KeyDataError
+   
+      childAddr.parentHash160      = self.getHash160()
+      childAddr.binAddr160         = self.binPubKey33or65.getHash160()
+      childAddr.useEncryption      = self.useEncryption
+      childAddr.isInitialized      = True
+      childAddr.childIdentifier    = childID
+      childAddr.hdwDepth           = self.hdwDepth+1
+      childAddr.indexList          = self.indexList[:]
+      childAddr.indexList.append(childID)
+
+      if childAddr.useEncryption and not childAddr.needToDerivePrivKey:
+         # We can't get here without a [valid] decryptKey 
+         childAddr.lock(ekeyObj, keyData))
+         if not wasLocked:
+            childAddr.unlock(ekeyObj, keyData)
+            self.unlock(ekeyObj, keyData)
+      return childAddr
+
+
+   #############################################################################
+   #def lock(self, ekeyObj=None, encryptKey=None):
+      #if self.rootPriv_encr.getSize() > 0:
+         #self.rootPriv_encr.destroy()
+         #self.bip32seed_encr.destroy()
+         #return True
+      #elif self.rootPriv_plain.getSize() == 0:
+         #LOGERROR('No key data is present to lock')
+         #raise EncryptionError
+      #elif encryptKey==None:
+         #LOGERROR('Need encryption info to lock the wallet')
+         #raise EncryptionError
+      #elif not self.privCryptInfo.hasStoredIV() or \
+           #not self.seedCryptInfo.hasStoredIV()
+         #LOGERROR('No stored IV on an ArmoryRoot object')
+         #raise InitVectError
 
 
       # The ArmoryCryptInfo::encrypt method handles everything as long as 
       # you pass in sufficient information for it to do its thing.  Since
       # this is root which always stores its own IV, we don't need to pass
       # one in
-      self.rootPriv_encr = self.rootCryptInfo.encrypt(self.rootPriv_plain, \
-                                                      ekeyObj=ekeyObj, \
-                                                      keyData=encryptKey)
+      #self.rootPriv_encr = self.privCryptInfo.encrypt(self.rootPriv_plain, \
+                                                      #ekeyObj=ekeyObj, \
+                                                      #keyData=encryptKey)
             
-      self.bip32seed_encr = self.seedCryptInfo.encrypt(self.bip32seed_plain, \
-                                                       ekeyObj=ekeyObj, \
-                                                       keyData=encryptKey)
-
-      self.rootPriv_encr.destroy()
-      self.bip32seed_encr.destroy()
-      return True
+      #self.bip32seed_encr = self.seedCryptInfo.encrypt(self.bip32seed_plain, \
+                                                       #ekeyObj=ekeyObj, \
+                                                       #keyData=encryptKey)
+      #return True
 
 
    #############################################################################
    def unlock(self, ekeyObj=None, encryptKey=None):
-      if self.rootPriv_plain.getSize() > 0:
-         return True
-      elif self.rootPriv_encr.getSize() == 0:
-         LOGERROR('No key data is present to unlock')
-         raise EncryptionError
-      elif encryptKey==None:
-         LOGERROR('Need decryption info to unlock the wallet')
-         raise EncryptionError
-      elif not self.rootCryptInfo.hasStoredIV() or \
-           not self.seedCryptInfo.hasStoredIV()
-         LOGERROR('No stored IV on an ArmoryRoot object')
-         raise InitVectError
+      superUnlocked = super(ArmoryRoot, self).unlock(ekeyObj, encryptKey)
 
-
-      # The ArmoryCryptInfo::encrypt method handles everything as long as 
-      # you pass in sufficient information for it to do its thing.  Since
-      # this is root which always stores its own IV, we don't need to pass
-      # one in
-      self.rootPriv_plain = self.rootCryptInfo.decrypt(self.rootPriv_encr, \
-                                                       ekeyObj=ekeyObj, \
-                                                       keyData=encryptKey)
-            
-      self.bip32seed_plain = self.seedCryptInfo.decrypt(self.bip32seed_encr, \
-                                                        ekeyObj=ekeyObj, \
-                                                        keyData=encryptKey)
-
-      self.relockAtTime = RightNow + self.lockTimeout
-      return True
+      if superUnlocked and hdwDepth==0:
+         # This is a master root which also has seed data
+         if self.bip32seed_encr.getSize()  >  0 and \
+            self.bip32seed_plain.getSize() == 0:
+            self.bip32seed_plain = self.seedCryptInfo.decrypt( \
+                                                   self.bip32seed_encr, \
+                                                   ekeyObj=ekeyObj, \
+                                                   keyData=encryptKey)
+            self.bip32seed_plain.resize(self.bip32seed_size)
+      return superUnlocked
 
 
    #############################################################################
-   def CreateNewJBOKRoot(self, typeStr='BIP32', cryptInfo=None, MofN=None):
+   def lock(self, ekeyObj=None, encryptKey=None):
+      superLocked = super(ArmoryRoot, self).lock(ekeyObj, encryptKey)
+      if superLocked and hdwDepth==0:
+         self.bip32seed_plain.destroy()
+
+
+   #############################################################################
+   def CreateNewJBOKRoot(self, typeStr='BIP32', cryptInfo=None):
       """
       JBOK is "just a bunch of keys," like the original Bitcoin-Qt client 
       (prior to version... 0.8?).   We don't actually need a deterministic 
       part in this root/chain... it's only holding a bunch of unrelated 
       """
-      raise NotImplementedError
+      self.isFakeRoot = True
+      self.privCryptInfo = cryptInfo.copy()
+
 
    #############################################################################
    def advanceHighestIndex(self, ct=1):
