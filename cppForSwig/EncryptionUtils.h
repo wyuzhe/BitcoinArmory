@@ -6,20 +6,6 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 //
-// NOTE:  Armory wallet version 1.35 was heavily tested and very robuts.
-//        But it was missing a variety of features, including compatibility
-//        with the "Hierarchical Deterministic Wallets" to be included
-//        in the Satoshi client.
-//
-//        As such, I want to support the old wallet format, and I don't want
-//        to risk breaking it.  So I'm going to rename *EVERYTHING* that was
-//        used for that wallet format to _1_35, and make the PyBtcAddress/Wallet
-//        objects _1_35 as well.  Then essentially start over with the new 
-//        wallets...
-//
-//
-////////////////////////////////////////////////////////////////////////////////
-//
 // Implements canned routines in Crypto++ for AES encryption (for wallet
 // security), ECDSA (which is already available in the python interface,
 // but it is slow, so we might as well use the fast C++ method if avail),

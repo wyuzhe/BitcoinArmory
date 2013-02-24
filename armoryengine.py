@@ -37,7 +37,7 @@
 
 
 # Version Numbers 
-BTCARMORY_VERSION      = (0, 87, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
+ARMORY_APP_VERSION     = (0, 89, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
 ARMORY_WALLET_VERSION  = (2,  0, 0, 0)  # (Major, Minor, Minor++, even-more-minor)
 
 ARMORY_DONATION_ADDR = '1ArmoryXcfq7TnCSuZa9fQjRYwJ4bkRKfv'
@@ -145,8 +145,8 @@ def readVersionInt(verInt):
 
 print '********************************************************************************'
 print 'Loading Armory Engine:'
-print '   Armory Version:      ', getVersionString(BTCARMORY_VERSION)
-print '   PyBtcWallet  Version:', getVersionString(PYBTCWALLET_VERSION)
+print '   Armory Version:      ', getVersionString(ARMORY_APP_VERSION)
+print '   PyBtcWallet  Version:', getVersionString(ARMORY_WALLET_VERSION)
 
 # Get the host operating system
 import platform
@@ -649,8 +649,8 @@ LOGINFO('************************************************************')
 LOGINFO('Invoked: ' + ' '.join(argv))
 LOGINFO('************************************************************')
 LOGINFO('Loading Armory Engine:')
-LOGINFO('   Armory Version        : ' + getVersionString(BTCARMORY_VERSION))
-LOGINFO('   PyBtcWallet  Version  : ' + getVersionString(PYBTCWALLET_VERSION))
+LOGINFO('   Armory Version        : ' + getVersionString(ARMORY_APP_VERSION))
+LOGINFO('   PyBtcWallet  Version  : ' + getVersionString(ARMORY_WALLET_VERSION))
 LOGINFO('Detected Operating system: ' + OS_NAME)
 LOGINFO('   User home-directory   : ' + USER_HOME_DIR)
 LOGINFO('   Satoshi BTC directory : ' + BTC_HOME_DIR)
@@ -1571,6 +1571,7 @@ def makeBinaryUnpacker(obj):
 #_Gy = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8L
 
 
+
 # We can identify an address string by its first byte upon conversion
 # back to binary.  Return -1 if checksum doesn't match
 def checkAddrType(addrBin):
@@ -1952,7 +1953,7 @@ class ArmoryAddress(object):
       because that is what is required by the C++ code.  See EncryptionUtils.h
       to see that available methods.
       """
-      self.versionInt            = getVersionInt(PYBTCWALLET_VERSION) # created-by wallet ver
+      self.versionInt            = getVersionInt(ARMORY_WALLET_VERSION) # created-by wallet ver
       self.binAddr160            = ''                                     
       self.binPubKey33or65       = SecureBinaryData()  # Compressed or not
       self.binPrivKey32_Encr     = SecureBinaryData()  # BIG-ENDIAN
@@ -2692,7 +2693,7 @@ class ArmoryAddress(object):
       privAvail = self.getPrivKeyAvailability()
       if privAvail==PRIV_KEY_AVAIL.NextUnlock:
          LOGERROR('Cannot allow multi-level priv key generation while locked')
-         raise KeyDataError, 
+         raise KeyDataError,'Cannot allow multi-level priv key generation while locked'
                               
       wasLocked  = False
       if privAvail==PRIV_KEY_AVAIL.Encrypted and self.verifyEncryptionKey(decryptKey):
@@ -6134,7 +6135,7 @@ class PyBtcWallet(object):
    Version 1.0:
    ---
    fileID      -- (8)  '\xbaWALLET\x00' for wallet files
-   version     -- (4)   getVersionInt(PYBTCWALLET_VERSION)
+   version     -- (4)   getVersionInt(ARMORY_WALLET_VERSION)
    magic bytes -- (4)   defines the blockchain for this wallet (BTC, NMC)
    wlt flags   -- (8)   64 bits/flags representing info about wallet
    binUniqueID -- (6)   first 5 bytes of first address in wallet
@@ -6207,7 +6208,7 @@ class PyBtcWallet(object):
    def __init__(self):
       self.fileTypeStr    = '\xbaWALLET\x00'
       self.magicBytes     = MAGIC_BYTES
-      self.version        = PYBTCWALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
+      self.version        = ARMORY_WALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
       self.eofByte        = 0
       self.cppWallet      = None   # Mirror of PyBtcWallet in C++ object
       self.cppInfo        = {}     # Extra info about each address to help sync
@@ -7750,7 +7751,7 @@ class PyBtcWallet(object):
 
 
       ### Update the wallet version if necessary ###
-      if getVersionInt(self.version) < getVersionInt(PYBTCWALLET_VERSION):
+      if getVersionInt(self.version) < getVersionInt(ARMORY_WALLET_VERSION):
          LOGERROR('Wallets older than version 1.35 no loger supported!')
          return
 
@@ -11977,7 +11978,7 @@ class KdfObject(object):
    ############################################################################
    # STATIC METHOD (no self)
    def registerKDF(kdfObj):
-      LOGINFO('Registering KDF object: %s', binary_to_hex(kdfObj.getKdfID())
+      LOGINFO('Registering KDF object: %s', binary_to_hex(kdfObj.getKdfID()))
       self.REGISTERED_KDFS[kdfObj.getKdfID()] = kdfObj
 
    ############################################################################
@@ -12001,7 +12002,7 @@ class KdfObject(object):
          bp.put(BINARY_CHUNK, 'SHA512',               widthBytes= 8)
          bp.put(UINT32,       self.memReqd)          #widthBytes= 4
          bp.put(UINT32,       self.numIter)          #widthBytes= 4
-         bp.put(BINARY_CHUNK, self.salt.toBinStr()),  widthBytes=32)
+         bp.put(BINARY_CHUNK, self.salt.toBinStr(),   widthBytes=32)
       elif self.kdfName.lower()=='identity':
          bp.put(BINARY_CHUNK, 'Identity',             widthBytes= 8)
       return bp.getBinaryString()
@@ -12275,7 +12276,7 @@ class EncryptionKey(object):
       LOGINFO('Finished creating new master key:')
       LOGINFO('\tKDF:     %s', binary_to_hex(kdfID))
       LOGINFO('\tCrypto:  %s', encryptKeyAlgo)
-      LOGINFO('\tTestStr: %s', binary_to_hex(self.testStringPlain[16:])
+      LOGINFO('\tTestStr: %s', binary_to_hex(self.testStringPlain[16:]))
 
 
    #############################################################################
@@ -12320,7 +12321,7 @@ class EncryptionKey(object):
          fmtChallenge.append( '   KDF Salt:      ' + kdfObj.salt.toHexStr()[:32] )
          fmtChallenge.append( '                  ' + kdfObj.salt.toHexStr()[32:] )
          fmtChallenge.append( '' )
-         fmtChallenge.append( '   Encryption:    ' 
+         fmtChallenge.append( '   Encryption:    ' )
          fmtChallenge.append( '   Encrypted Key: ' + kdfObj.masterKeyEncrypted.toHexStr()[:32])
          fmtChallenge.append( '                  ' + kdfObj.masterKeyEncrypted.toHexStr()[32:])
       fmtChallenge.append( '' )
@@ -12435,7 +12436,7 @@ class RootRelationship(object):
    def serialize(self):
       if not self.complexRelationship: 
          siblingOut = ['\x00'*20]*3
-         for i,sib in enumerate(sorted(self.siblings))
+         for i,sib in enumerate(sorted(self.siblings)):
             siblingOut[i] = sib[:]
          bp = BinaryPacker()
          bp.put(UINT32,       self.relType[0])
@@ -12497,7 +12498,7 @@ class ArmoryRoot(object):
       """
       self.fileTypeStr    = '\xbaWALLET\x00'
       self.magicBytes     = MAGIC_BYTES
-      self.version        = PYBTCWALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
+      self.version        = ARMORY_WALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
       self.eofByte        = 0
       self.cppWallet      = None   # Mirror of PyBtcWallet in C++ object
       self.cppInfo        = {}     # Extra info about each address to help sync
@@ -12724,7 +12725,8 @@ class WalletEntry(object):
             self.WLTENTRYCODES[val] = key
 
 
-   def isEncrypted(self,
+   def isEncrypted(self):
+      raise 'Notimplemented'
 
    #############################################################################
    def serialize(self):
@@ -12909,10 +12911,11 @@ class ArmoryWalletFile(object):
 
    #############################################################################
    def changePrivateKeyEncryption(self, encryptInfoObj):
-      
+      raise 'Notimplemented'   
 
    #############################################################################
    def changeOuterEncryption(self, encryptInfoObj):
+      raise 'Notimplemented'   
 
 
    #############################################################################
@@ -12949,7 +12952,8 @@ class ArmoryWalletFile(object):
 
       while not bu.isEndOfStream():
          weObj = readWalletEntry(bu)
-         if weObj.payload.root160
+         if weObj.payload.root160:
+            raise 'Notimplemented'   
          if weTypesToMerge[0].lower()=='all' or weObj.entryCode in weTypesToMerge:
             self.addFileOperationToQueue('Append', weObj)
       
@@ -13013,7 +13017,7 @@ class ArmoryWalletFile(object):
       """
          
       
-      isWltEntryObj = isinstance(theData, WalletEntry):
+      isWltEntryObj = isinstance(theData, WalletEntry)
 
       # The data to eventually be added to the file, or overwrite previous data
       newData = None
@@ -13290,7 +13294,6 @@ class PyBtcWallet(object):
 
 
 
-
 """
 class PyBtcWallet(object):
    """
@@ -13339,7 +13342,7 @@ class PyBtcWallet(object):
    Version 1.0:
    ---
    fileID      -- (8)  '\xbaWALLET\x00' for wallet files
-   version     -- (4)   getVersionInt(PYBTCWALLET_VERSION)
+   version     -- (4)   getVersionInt(ARMORY_WALLET_VERSION)
    magic bytes -- (4)   defines the blockchain for this wallet (BTC, NMC)
    wlt flags   -- (8)   64 bits/flags representing info about wallet
    binUniqueID -- (6)   first 5 bytes of first address in wallet
@@ -13412,7 +13415,7 @@ class PyBtcWallet(object):
    def __init__(self):
       self.fileTypeStr    = '\xbaWALLET\x00'
       self.magicBytes     = MAGIC_BYTES
-      self.version        = PYBTCWALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
+      self.version        = ARMORY_WALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
       self.eofByte        = 0
       self.cppWallet      = None   # Mirror of PyBtcWallet in C++ object
       self.cppInfo        = {}     # Extra info about each address to help sync
@@ -14951,7 +14954,7 @@ class PyBtcWallet(object):
 
 
       ### Update the wallet version if necessary ###
-      if getVersionInt(self.version) < getVersionInt(PYBTCWALLET_VERSION):
+      if getVersionInt(self.version) < getVersionInt(ARMORY_WALLET_VERSION):
          LOGERROR('Wallets older than version 1.35 no loger supported!')
          return
 
