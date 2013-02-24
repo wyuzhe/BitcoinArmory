@@ -1562,8 +1562,12 @@ if Test_WalletFile2point0:
 
 
    TEST UNICODE!
-
-
+   TEST critical wallet entries
+   TEST wallet recovery challenge
+   TEST watch-only wallet encryption
+   TEST change encryption/KDF
+   TEST atomic file ops!
+   TEST batch-add operations between applyUpdates
 
 
    weKDF = WalletEntryKDFAlgo('ROMixOv2')
