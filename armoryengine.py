@@ -121,6 +121,9 @@ def toUnicode(theStr, theEncoding=DEFAULT_ENCODING):
 def toPreferred(theStr):
    return toUnicode(theStr).encode(locale.getpreferredencoding())
 
+def fromPreferred(theStr):
+   return toUnicode(theStr.decode(locale.getpreferredencoding()))
+
 
 def lenBytes(theStr, theEncoding=DEFAULT_ENCODING):
    return len(toBytes(theStr, theEncoding))
@@ -211,13 +214,13 @@ else:
    print '***Unknown operating system!'
    print '***Cannot determine default directory locations'
 
-
 # Allow user to override default bitcoin-qt/bitcoind home directory
 if not CLI_OPTIONS.satoshiHome.lower()=='default':
-   if not os.path.exists(CLI_OPTIONS.satoshiHome):
+   if not os.path.exists(fromPreferred(CLI_OPTIONS.satoshiHome)):
       print 'Directory "%s" does not exist!  Using default!' % CLI_OPTIONS.satoshiHome
    else:
-      BTC_HOME_DIR = CLI_OPTIONS.satoshiHome
+      BTC_HOME_DIR = fromPreferred(CLI_OPTIONS.satoshiHome)
+
 
 
 # Allow user to override default Armory home directory
